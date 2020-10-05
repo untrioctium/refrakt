@@ -1,0 +1,238 @@
+common:
+  r: length($v)
+  rsq: $r * $r
+  a: atan($x, $y)
+  phi: atan($y, $x)
+  sina: $x / $r
+  cosa: $y / $r
+  sinr: sin($r)
+  cosr: cos($r)
+  lr: float(gl_LocalInvocationID.x)/float(gl_WorkGroupSize.x)
+
+variations:
+  linear:
+    src: $result += $weight * $v;
+
+  sinusoidal:
+    src: $result += $weight * sin($v);
+
+  spherical:
+    src: $result += $v * $weight / ($rsq + EPS);
+
+  swirl:
+    src: |-
+      float c1 = cos($rsq);
+      float c2 = sin($rsq);
+      $result += $weight * vec2(c1 * $x - c2 * $y, c2 * $x - c1 * $y);
+
+  horseshoe:
+    src: $result += $weight / ($r + EPS) * vec2(($x + $y) * ($x - $y), 2.0 * $x * $y);
+
+  polar:
+    src: $result += $weight * vec2($a * PI, $r - 1.0);
+
+  handkerchief:
+    src: $result += $weight * $r * vec2(sin($a + $r), cos($a - $r));
+
+  heart:
+    src: $result += $weight * $r * vec2(sin($r * $a), -cos($r * $a));
+
+  disc:
+    src: $result += $weight * PI * $a * vec2($sinr, $cosr);
+
+  spiral:
+    src: $result += $weight / ($r + EPS) * vec2($cosa + $sinr, $sina - $cosr);
+
+  hyperbolic:
+    src: $result += $weight * vec2($sina/($r + EPS), $cosa * $r);
+
+  diamond:
+    src: $result += $weight * vec2($sina * $cosr, $cosa * $sinr);
+
+  ex:
+    src: |-
+      float n0 = sin($a + $r);
+      float n1 = cos($a - $r);
+      float m0 = n0 * n0 * n0 * $r;
+      float m1 = n1 * n1 * n1 * $r;
+      $result += $weight * vec2(m0 + m1, m0 - m1);
+
+  julia:
+    src: "$result += $weight * sqrt($r) * sincos(0.5 * $a + (($lr > 0.5)? PI: 0)).yx;"
+
+  bent:
+    src: |-
+      $result += $weight 
+      * vec2(
+        ($x < 0.0)? 2.0 * $x: $x,
+        ($y < 0.0)? $y / 2.0: $y
+      );
+
+  waves:
+    src: |-
+      $result += $weight 
+      * vec2(
+        $x + $c10 * sin($y/($c20 * $c20 + EPS)),
+        $y + $c11 * sin($x/($c21 * $c21 + EPS))
+      );
+
+  fisheye:
+    src: $result += 2.0 * $weight / ($r + 1.0) * vec2($y,$x);
+
+  popcorn:
+    src: |-
+      $result += $weight 
+      * vec2(
+        $x + $c20 * sin(tan(3 * $y)),
+        $y + $c21 * sin(tan(3 * $x))
+      );
+
+  exponential:
+    src: $result += exp($x - 1) * sincos(PI * $y).yx;
+
+  power:
+    src: $result += $weight * pow($r, $sina) * vec2($sina, $cosa);
+
+  cosine:
+    src: $result += $weight * vec2(cos(PI * $x) * cosh($y), -sin(PI * $x) * sinh(y));
+
+  rings:
+    src: |-
+      float rings_dx = $c20 * $c20 + EPS;
+      $result += $weight * (mod($r + rings_dx, 2.0 * rings_dx) - rings_dx + $r * (1.0 - rings_dx)) * vec2($sina, $cosa);
+
+  fan:
+    src: |-
+      float fan_dx = PI * $c20 * $c20;
+      float fan_dx2 = fan_dx * 0.5;
+      float fan_a = $a;
+      fan_a += fmod(fan_a+$c21,dx) > dx2) ? -dx2 : dx2;
+      $result += $weight * $r * sincos(fan_a).yx;
+
+  blob:
+    param: 
+      blob_high: {}
+      blob_low: {}
+      blob_waves: {}
+    src: $result += $weight * $r * ($blob_low + ($blob_high - $blob_low) * (0.5 + 0.5 * sin($blob_waves * $a))) * vec2($sina, $cosa);
+      
+  pdj:
+    param:
+      pdj_a: {}
+      pdj_b: {}
+      pdj_c: {}
+      pdj_d: {}
+    src: |-
+      $result += $weight 
+      * vec2(
+        sin($pdj_a * $y) - cos($pdj_b * $x),
+        sin($pdj_c * $x) - cos($pdj_d * $y)
+      )
+
+  fan2:
+    param:
+      fan2_x: {}
+      fan2_y: {}
+    src: |-
+      float fan2_dx = PI * ($fan2_x * $fan2_x + EPS);
+      float fan2_dx2 = 0.5 * dx;
+      float fan2_a = $a;
+      float fan2_t = $a + $fan2_y - fan2_dx * floor(($a + $fan2_y)/fan2_dx);
+      if(fan2_t > fan2_dx2) 
+        fan2_a = fan2_a - fan2_dx2;
+        else fan2_a = fan2_a + fan2_dx2;
+      $result += $weight * $r * sincos(fan2_a);
+
+  rings2:
+    param:
+      rings2_val: {}
+    src: |-
+      float rings2_dx = $rings2_val * $rings2_val + EPS;
+      float rings2_r = $r;
+      rings2_r += -2.0 * rings2_dx * floor((rings2_r * rings2_dx)/(2.0 * rings2_dx)) + rings2_r * (1.0 - rings2_dx);
+      $result += $weight * rings2_r * vec2($sina, $cosa);
+
+  eyefish:
+    src: $result += $weight * 2.0 / ($r + 1.0) * $v;
+
+  bubble:
+    src: $result += $weight / (0.25 * $rsq + 1.0) * $v;
+
+  perspective:
+    param:
+      perspective_angle: {}
+      perspective_dist: {}
+    src: |-
+      $result += $weight 
+      * vec2($x * $perspective_dist, $perspective_dist * cos($perspective_angle) * $y) 
+      / ($perspective_dist - $y * sin($perspective_angle));
+
+  noise:
+    src: $result += $weight * $v * randf() * sincos(randf() * 2.0 * PI).yx
+
+  julian:
+    param:
+      julian_power: {}
+      julian_dist: {}
+    src: |-
+      $result += $weight 
+      * pow($rsq, $julian_dist / $julian_power / 2.0) 
+      * sincos(($phi + 2.0 * PI * floor(abs($julian_power) * randf())) / $julian_power).yx;
+
+  juliascope:
+    param:
+      juliascope_power: {}
+      juliascope_dist: {}
+    src: |-
+      $result += $weight 
+      * pow($rsq, $juliascope_dist / $juliascope_power / 2.0) 
+      * sincos(
+            (2 * PI * floor(abs($juliascope_power) * randf()) + ((randf() > .5) -1: 1) * $phi) 
+            / $juliascope_power
+        ).yx;
+
+  blur:
+    src: $result += $weight * randf() * sincos(randf() * 2.0 * PI).yx;
+
+  gaussian:
+    src: $result += $weight * (randf() + randf() + randf() + randf() - 2.0) * sincos(randf() * 2.0 * PI).yx;
+
+  radial_blur:
+    param:
+      radial_blur_angle: {}
+    src: |-
+      vec2 radial_blur_spinzoom = sincos($radial_blur_angle * PI / 2.0);
+      float radial_blur_rndg = $weight * (randf() + randf() + randf() + randf() - 2.0);
+      vec2 tmpa = sincos($phi + radial_blur_spinzoom.x * radial_blur_rndg);
+      float radial_blur_rz = radial_blur_spinzoom.y * radial_blur_rndg - 1.0;
+      $result += vec2($r * tmpa.y + radial_blur_rz * $x, $r * tmpa.x + radial_blur_rz * $y)
+
+  pie:
+    param:
+      pie_slices: {}
+      pie_rotation: {}
+      pie_thickness: {}
+    src: |-
+      $result += $weight * randf() * sincos($pie_rotation + 2.0 * PI * (floor(randf() * $pie_slices + 0.5) + randf() * $pie_thickness)/$pie_slices);
+   
+  # End normal variation work
+
+  pre_blur:
+    flags: [pre_xform]
+    src: $v += $weight * (randf() + randf() + randf() + randf() - 2.0) * sincos(randf() * 2.0 * PI).yx;
+
+  waves2:
+    param:
+      waves2_scalex: {}
+      waves2_scaley: {}
+      waves2_freqx: {}
+      waves2_freqy: {}
+    src: |-
+      $result += $weight
+      * vec2(
+        $x + $waves2_scalex * sin($x * $waves2_freqx),
+        $y + $waves2_scaley * sin($y * $waves2_freqy)
+      );
+
+  cylinder:
+    src: $result += $weight * vec2(sin($x), $y);

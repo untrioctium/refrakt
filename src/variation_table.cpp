@@ -1,0 +1,173 @@
+#include <yaml-cpp/yaml.h>
+#include <regex>
+#include <stack>
+#include <boost/algorithm/string/replace.hpp>
+#include <boost/algorithm/string.hpp>
+#include <fmt/core.h>
+
+#include "util.hpp"
+#include "variation_table.hpp"
+
+void default_replace_macros(std::string& str) {
+    // TODO: maybe not do this here
+    str = replace_macro(str, "x", "v.x");
+    str = replace_macro(str, "y", "v.y");
+    str = replace_macro(str, "v", "v");
+    str = replace_macro(str, "result", "result");
+}
+
+variation_table::variation_table(const std::string& def_path) {
+    auto defs = YAML::LoadFile(def_path);
+    auto variations = defs["variations"];
+
+    for (auto it = variations.begin(); it != variations.end(); it++) {
+        auto name = it->first.as<std::string>();
+        auto src = it->second.as<YAML::Node>()["src"].as<std::string>();
+        default_replace_macros(src);
+        auto param = it->second.as<YAML::Node>()["param"];
+        auto& var = vars_[name];
+        var.source = src;
+
+        for (auto it = param.begin(); it != param.end(); it++) {
+            auto pname = it->first.as<std::string>();
+            var.param.push_back(pname);
+            param_owners_[pname] = name;
+        }
+    }
+
+    auto common = defs["common"];
+    for (auto it = common.begin(); it != common.end(); it++) {
+        auto name = it->first.as<std::string>();
+        auto src = it->second.as<std::string>();
+        default_replace_macros(src);
+        common_[name] = src;
+    }
+}
+
+using adj_desc_t = std::map<std::string, std::set<std::string>>;
+
+void order_recurse(const std::string& vertex, const adj_desc_t& adj, std::map<std::string, bool>& visited, std::stack<std::string>& stack) {
+    visited[vertex] = true;
+
+    for (auto con : adj.at(vertex)) {
+        if (!visited[con])
+            order_recurse(con, adj, visited, stack);
+    }
+
+    stack.push(vertex);
+}
+
+std::stack<std::string> get_ordering(const adj_desc_t& adj) {
+    std::stack<std::string> ordering;
+    std::map<std::string, bool> visited;
+    for (auto& [k, v] : adj) visited[k] = false;
+
+    for (auto& [v, a] : adj) {
+        if (!visited[v])
+            order_recurse(v, adj, visited, ordering);
+    }
+
+    return ordering;
+}
+
+std::string variation_table::compile_flame_xforms(const flame& f, const nlohmann::json& buf_map)
+{
+    auto make_param_str = [](const nlohmann::json& v) { return "fp[" + std::to_string(v.get<int>()) + "]"; };
+    std::string compiled{};
+
+    std::string disp_func = std::string("vec4 dispatch(vec2 v){\n")
+        + "float ratio = gl_WorkGroupID.x / float(gl_NumWorkGroups.x);\n"
+        + "float sum = 0.0;\n";
+
+    // concat sources
+    for (int i = 0; i < f.xforms.size(); i++) {
+        std::string func_name = "apply_xform_" + std::to_string(i);
+        const auto& xform = f.xforms.at(i);
+        const auto& xform_map = buf_map["xforms"][i];
+        std::string xform_result{};
+
+        std::string dispatch_invoke = 
+            fmt::format("return vec4({}(v), {}, {});\n", func_name, make_param_str(xform_map["color"]),make_param_str(xform_map["color_speed"]));
+        // append to the dispatch function
+        if (i + 1 == f.xforms.size()) {
+            disp_func += dispatch_invoke;
+        }
+        else {
+            disp_func += "sum += " + make_param_str(buf_map["xforms"][i]["weight"]) + ";\n";
+            disp_func += "if(sum >= ratio) " + dispatch_invoke;
+        }
+
+        // resolve variation weights
+        for (auto& [var_name, var] : xform.variations) {
+            std::string var_src{};
+            var_src += "// variation: " + var_name + "\n";
+            var_src += replace_macro(vars_[var_name].source, "weight", make_param_str(buf_map["xforms"][i]["variations"][var_name])) + "\n";
+            if (var_name == "pre_blur") xform_result = var_src + xform_result; else xform_result += var_src;
+        }
+
+        // resolve parameters
+        for (auto& [p_name, val] : xform.var_param) {
+            xform_result = replace_macro(xform_result, p_name, make_param_str(buf_map["xforms"][i]["param"][p_name]));
+        }
+
+        // resolve precalc macros
+        auto macros = find_macros(xform_result);
+        std::erase_if(macros, [this](auto name) {return !is_common(name); });
+
+        std::map<std::string, std::set<std::string>> macro_adj;
+        for (auto& m : macros) {
+            auto deps = find_macros(common(m));
+            for (auto d : deps) {
+                if(is_common(d) && !macro_adj.contains(d)) macro_adj[d] = find_macros(common(m));
+            }
+            macro_adj[m] = find_macros(common(m));
+        }
+
+        auto order = get_ordering(macro_adj);
+        while (order.size()) {
+            xform_result = "float " + order.top() + " = " + common(order.top()) + ";\n" + xform_result;
+            order.pop();
+        }
+       
+        // append affine
+        std::string affine = "\tv = vec2($c00 * v.x + $c10 * v.y + $c20, $c01 * v.x + $c11 * v.y + $c21);\n";
+        xform_result = affine + "vec2 result = vec2(0.0, 0.0);\n" + xform_result;
+
+        // resolve affine
+        for (int c = 0; c < 3; c++) {
+            for (int r = 0; r < 2; r++) {
+                std::string name = "c" + std::to_string(c) + std::to_string(r);
+                int index = c * 2 + r;
+                xform_result = replace_macro(xform_result, name, make_param_str(buf_map["xforms"][i]["affine"][index]));
+            }
+        }
+
+        // append post
+        if (xform.post) {
+            xform_result += "\tresult = vec2($p00 * result.x + $p10 * result.y + $p20, $p01 * result.x + $p11 * result.y + $p21);\n";
+
+            // resolve post
+            for (int c = 0; c < 3; c++) {
+                for (int r = 0; r < 2; r++) {
+                    std::string name = "p" + std::to_string(c) + std::to_string(r);
+                    int index = c * 2 + r;
+                    xform_result = replace_macro(xform_result, name, make_param_str(buf_map["xforms"][i]["post"][index]));
+                }
+            }
+        }
+
+        xform_result += fmt::format("if(make_xform_dist) atomicAdd(xform_invoke_count[{}], 1);\n", i);
+        xform_result += "return result;\n";
+        boost::replace_all(xform_result, "\n", "\n\t");
+        boost::erase_all(xform_result, "$");
+
+        std::string final_xform = "vec2 " + func_name + "(vec2 v) {\n" + xform_result + "\n}\n";
+
+        compiled += final_xform;
+    }
+
+    boost::replace_all(disp_func, "\n", "\n\t");
+    disp_func += "\n}";
+
+    return compiled + disp_func;
+}
