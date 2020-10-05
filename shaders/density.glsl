@@ -19,7 +19,7 @@ void main() {
 			estimator_radius, 
 			int(
 				estimator_radius 
-				/ pow(input_val.a + 0.000001, estimator_curve)
+				/ pow(input_val.a + 1.0, estimator_curve)
 			)
 		)
 	);

@@ -228,11 +228,11 @@ int main(int, char**)
     bool show_another_window = false;
     ImVec4 clear_color = ImVec4(0.0f, 0.0f, 0.0f, 1.00f);
 
-    std::size_t num_points = 1024 * 512;
+    std::size_t num_points = 512 * 512;
     storage_buffer<float> samples{ make_sample_points(num_points) };
 
     auto variations = variation_table{ "variations.yaml" };
-    auto flame_def = load_flame("flames/electricsheep.247.27541.flam3", variations);
+    auto flame_def = load_flame("flames/electricsheep.247.25757.flam3", variations);
     auto buffer_map = make_shader_buffer_map(flame_def);
     std::cout << buffer_map.dump(1) << std::endl;
     auto shader_src = replace_macro(read_file("shaders/flame.glsl"), "varsource", variations.compile_flame_xforms(flame_def, buffer_map));
@@ -273,28 +273,33 @@ int main(int, char**)
     storage_buffer<unsigned int> atomic_counters{ atomic_init };
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 7, atomic_counters.name());
 
-    int num_shuf_bufs = 128;
+    int num_shuf_bufs = 512;
     auto shuf = make_shuffle_buffers(num_points, num_shuf_bufs);
     storage_buffer<std::uint32_t> shuf_buf{ shuf.size(), shuf.data() };
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, shuf_buf.name());
+    shuf.clear();
 
     const int in_buf_pos = 0;
     const int out_buf_pos = 1;
     const int in_buf_col = 2;
     const int out_buf_col = 3;
 
-    texture<float> render_targets[2] = { {1920, 1200}, {1920, 1200} };
-    frame_buffer fb;
+    const std::size_t target_dims[2] = { 1280, 720 };
 
-    auto shuf_path = create_shuffle_buffer(num_shuf_bufs);
+    texture<float> render_targets[2] = { {1280, 720}, {1280, 720} };
+    frame_buffer fb;
 
     timer frame_timer;
 
     const float DEGREES_PER_SECOND = 45.0f;
 
+    int warmup_passes = 16;
+    int drawing_passes = 64;
+
     // Main loop
     while (!glfwWindowShouldClose(window))
     {
+        auto shuf_path = create_shuffle_buffer(num_shuf_bufs);
         std::unordered_map<std::string, float> perf_timer_results;
 
         float dt = float(frame_timer.time<timer::ms>()) / 1000.0f;
@@ -310,6 +315,11 @@ int main(int, char**)
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
         ImGui::ShowDemoWindow();
+
+        ImGui::Begin("Passes");
+        ImGui::InputInt("Warmup Passes", &warmup_passes, 2, 2);
+        ImGui::InputInt("Drawing Passes", &drawing_passes, 2, 2);
+        ImGui::End();
 
         ImGui::Begin("Flame Info"); {
             ImGui::DragFloat("Scale", &flame_def.scale, 1, 1, 1000);
@@ -361,9 +371,9 @@ int main(int, char**)
         float rotation = DEGREES_PER_SECOND * dt;
 
         // Do rotation
-        for (auto& x : flame_def.xforms) {
-            if (x.animate) x.affine = rotate_affine(x.affine, rotation);
-        }
+        //for (auto& x : flame_def.xforms) {
+        //    if (x.animate) x.affine = rotate_affine(x.affine, rotation);
+        //}
 
         timer perf_timer;
         timer perf_timer_total;
@@ -383,7 +393,7 @@ int main(int, char**)
         cs.set_uniform<bool>("random_read", true);
         cs.set_uniform<bool>("random_write", false);
         cs.set_uniform<bool>("first_run", true);
-        cs.set_uniform<float>("rand_seed", 1352.0f);
+        cs.set_uniform<float>("rand_seed", 1356462.0f);
         cs.set_uniform<unsigned int>("shuf_buf_idx_in", *(shuf++));
         glDispatchCompute(num_points / 128, 1, 1);
         glMemoryBarrier(GL_ALL_BARRIER_BITS);
@@ -396,10 +406,10 @@ int main(int, char**)
 
         perf_timer.reset();
         // warm up passes, random read and write
-        for (int i = 0; i < 16; i++) {
+        for (int i = 0; i < warmup_passes; i++) {
             glBindBufferBase(GL_SHADER_STORAGE_BUFFER, in_buf_pos, pos[i & 1].name());
             glBindBufferBase(GL_SHADER_STORAGE_BUFFER, out_buf_pos, pos[!(i & 1)].name());
-            cs.set_uniform<float>("rand_seed", 1252.0f + i);
+            cs.set_uniform<float>("rand_seed", 12512512.0f + i);
             cs.set_uniform<unsigned int>("shuf_buf_idx_in", *(shuf++));
             cs.set_uniform<unsigned int>("shuf_buf_idx_out", *(shuf++));
             glDispatchCompute(num_points / 128, 1, 1);
@@ -410,27 +420,25 @@ int main(int, char**)
 
         fb.bind();
         frame_buffer::attach(render_targets[0].name());
+        glClearColor(0,0,0,0);
         glClear(GL_COLOR_BUFFER_BIT);
         glEnable(GL_BLEND);
         glBlendFunc(GL_ONE, GL_ONE);
 
-        cs.set_uniform<bool>("random_read", true);
-        cs.set_uniform<bool>("random_write", false);
+        //cs.set_uniform<bool>("random_read", true);
+        //cs.set_uniform<bool>("random_write", false);
 
-        perf_timer_results["draw calc"] = 0.0f;
-        perf_timer_results["draw draw"] = 0.0f;
-
+        perf_timer.reset();
         // drawing passes
-        for (int i = 0; i < 64; i++) {
-            perf_timer.reset();
+        for (int i = 0; i < drawing_passes; i++) {
             {
                 glBindBufferBase(GL_SHADER_STORAGE_BUFFER, in_buf_pos, pos[i & 1].name());
                 glBindBufferBase(GL_SHADER_STORAGE_BUFFER, out_buf_pos, pos[!(i & 1)].name());
-                cs.set_uniform<float>("rand_seed", 13.0f + i);
+                cs.set_uniform<float>("rand_seed", 1312412.0f + i);
                 cs.set_uniform<unsigned int>("shuf_buf_idx_in", *(shuf++));
                 glDispatchCompute(num_points / 128, 1, 1);
                 glMemoryBarrier(GL_ALL_BARRIER_BITS);
-                glFinish();
+//                glFinish();
             }
             perf_timer_results["draw calc"] += perf_timer.time<timer::ns>();
 
@@ -447,17 +455,16 @@ int main(int, char**)
                     -1.0f, 1.0f);
            
             particle_vf.set_uniform<glm::mat4>("projection", proj);
-            perf_timer.reset();
             {
                 glBindVertexArray(vao[!(i & 1)]);
                 glDrawArrays(GL_POINTS, 0, num_points);
-                glMemoryBarrier(GL_ALL_BARRIER_BITS);
+//                glMemoryBarrier(GL_ALL_BARRIER_BITS);
                 glFinish();
             }
-            perf_timer_results["draw draw"] += perf_timer.time<timer::ns>();
             glUseProgram(cs.name());
         }
-        
+        glFinish();
+        perf_timer_results["draw calc"] = perf_timer.time<timer::ns>();
         fb.unbind();
         glDisable(GL_BLEND);
         
@@ -471,7 +478,7 @@ int main(int, char**)
             density_cs.set_uniform<int>("out_hist", 1);
             glBindImageTexture(0, render_targets[0].name(), 0, GL_FALSE, 0, GL_READ_ONLY, GL_RGBA32F);
             glBindImageTexture(1, render_targets[1].name(), 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA32F);
-            glDispatchCompute(1920, 1200, 1);
+            glDispatchCompute(1280, 720, 1);
             glMemoryBarrier(GL_ALL_BARRIER_BITS);
             glFinish();
         }
@@ -482,7 +489,7 @@ int main(int, char**)
             glUseProgram(tonemap_cs.name());
             glBindImageTexture(0, render_targets[1].name(), 0, GL_FALSE, 0, GL_READ_WRITE, GL_RGBA32F);
             tonemap_cs.set_uniform<int>("image", 0);
-            glDispatchCompute(1920, 1200, 1);
+            glDispatchCompute(1280, 720, 1);
             glMemoryBarrier(GL_ALL_BARRIER_BITS);
             glFinish();
         }
@@ -502,11 +509,12 @@ int main(int, char**)
 
         auto total_time = perf_timer_total.time<timer::ns>();
         ImGui::Begin("Timing"); {
-            for (auto& [name, time] : perf_timer_results) {
-                ImGui::ProgressBar(time / float(total_time), ImVec2(0.0f, 0.0f));
-                ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
-                ImGui::Text(name.c_str());
-            }
+            #define SHOW_PERF_TIMER(name) ImGui::ProgressBar(perf_timer_results[name] / float(total_time), ImVec2(0.0f, 0.0f)); ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x); ImGui::Text(name)
+            SHOW_PERF_TIMER("copy data");
+            SHOW_PERF_TIMER("warm up");
+            SHOW_PERF_TIMER("draw calc");
+            SHOW_PERF_TIMER("density");
+            SHOW_PERF_TIMER("tonemap");
         }ImGui::End();
 
         ImGui::Render();

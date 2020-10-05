@@ -38,7 +38,6 @@ std::vector<float> make_sample_points(std::uint32_t count) {
     while (v >>= 1) {
         r++;
     }
-
     for (std::uint32_t i = 0; i < count; i++) {
         ret[i * 2] = (i * inv_max) * 2.0 - 1.0;
         ret[i * 2 + 1] = (flip_bits(i, r) * inv_max) * 2.0 - 1.0;

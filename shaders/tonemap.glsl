@@ -8,6 +8,9 @@ void main()
 {
 	ivec2 pos = ivec2(gl_WorkGroupID.xy);
 	vec4 color = imageLoad(image, pos);
+	if( color.a < 1.1 ) {
+		return;
+	}
 	float factor = log(color.a + 0.00001)/(color.a + 0.00001);
 	color *= factor;
 	color.r = pow(color.r, .25);
