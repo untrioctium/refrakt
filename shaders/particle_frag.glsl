@@ -12,5 +12,5 @@ layout(std430, binding = 6) buffer palette_buffer
  {
     uint upper_col = min(256, uint(ceil(col_val * 256.0)));
 
-    outColor = vec4(palette[min(256, upper_col)].rgb, 1.0);
+    outColor = vec4(palette[min(256, uint(ceil(col_val * 256.0)))].rgb, 1.0);
  }

@@ -49,6 +49,8 @@ public:
     std::string compile_flame_xforms(const flame& f, const nlohmann::json& buf_map);
 private:
 
+    std::string make_xform_src(const flame_xform& xform, const nlohmann::json& buf_map, const std::string& xform_name);
+
     std::map<std::string, std::string> common_;
     std::map<std::string, variation_definition> vars_;
     std::map<std::string, std::string> param_owners_;

@@ -1,5 +1,3 @@
-#include <span>
-#include <iostream>
 #include <GL/glew.h>
 
 template<typename DataType>
@@ -10,14 +8,12 @@ public:
 	storage_buffer(std::size_t buf_size, const DataType* src = nullptr) : size_(buf_size) {
 		glCreateBuffers(1, &name_);
 		glNamedBufferData(name_, item_size_ * buf_size, src, GL_DYNAMIC_COPY);
-		std::cout << "Created storage_buffer " + std::to_string(name_) << std::endl;
 
 	}
 
 	storage_buffer(const std::vector<DataType>& src) : storage_buffer(src.size(), src.data()) {}
 
 	~storage_buffer() {
-		std::cout << "Destroyed storage_buffer " + std::to_string(name_) << std::endl;
 		glDeleteBuffers(1, &name_);
 	}
 

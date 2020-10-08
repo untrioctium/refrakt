@@ -1,6 +1,6 @@
 common:
   r: length($v)
-  rsq: $r * $r
+  rsq: dot($v, $v)
   a: atan($x, $y)
   phi: atan($y, $x)
   sina: $x / $r
@@ -29,7 +29,7 @@ variations:
     src: $result += $weight / ($r + EPS) * vec2(($x + $y) * ($x - $y), 2.0 * $x * $y);
 
   polar:
-    src: $result += $weight * vec2($a * PI, $r - 1.0);
+    src: $result += $weight * vec2($a / PI, $r - 1.0);
 
   handkerchief:
     src: $result += $weight * $r * vec2(sin($a + $r), cos($a - $r));
@@ -38,7 +38,7 @@ variations:
     src: $result += $weight * $r * vec2(sin($r * $a), -cos($r * $a));
 
   disc:
-    src: $result += $weight * PI * $a * vec2($sinr, $cosr);
+    src: $result += $weight * $a * vec2(sin($r * PI), cos($r * PI)) / PI;
 
   spiral:
     src: $result += $weight / ($r + EPS) * vec2($cosa + $sinr, $sina - $cosr);
@@ -58,7 +58,7 @@ variations:
       $result += $weight * vec2(m0 + m1, m0 - m1);
 
   julia:
-    src: "$result += $weight * sqrt($r) * sincos(0.5 * $a + (($lr > 0.5)? PI: 0)).yx;"
+    src: "$result += $weight * sqrt($r) * sincos(0.5 * $a + ((randf() > 0.5)? PI: 0)).yx;"
 
   bent:
     src: |-
@@ -177,7 +177,7 @@ variations:
     src: |-
       $result += $weight 
       * pow($rsq, $julian_dist / $julian_power / 2.0) 
-      * sincos(($phi + 2.0 * PI * floor(abs($julian_power) * randf())) / $julian_power).yx;
+      * sincos(($phi + 2.0 * PI * trunc(abs($julian_power) * randf())) / $julian_power).yx;
 
   juliascope:
     param:
@@ -187,14 +187,14 @@ variations:
       $result += $weight 
       * pow($rsq, $juliascope_dist / $juliascope_power / 2.0) 
       * sincos(
-            (2 * PI * floor(abs($juliascope_power) * randf()) + ((randf() > .5) -1: 1) * $phi) 
+            (2 * PI * trunc(abs($juliascope_power) * randf()) + ((randf() > .5)? -1: 1) * $phi) 
             / $juliascope_power
         ).yx;
 
   blur:
     src: $result += $weight * randf() * sincos(randf() * 2.0 * PI).yx;
 
-  gaussian:
+  gaussian_blur:
     src: $result += $weight * (randf() + randf() + randf() + randf() - 2.0) * sincos(randf() * 2.0 * PI).yx;
 
   radial_blur:
@@ -230,9 +230,20 @@ variations:
     src: |-
       $result += $weight
       * vec2(
-        $x + $waves2_scalex * sin($x * $waves2_freqx),
-        $y + $waves2_scaley * sin($y * $waves2_freqy)
+        $x + $waves2_scalex * sin($y * $waves2_freqx),
+        $y + $waves2_scaley * sin($x * $waves2_freqy)
       );
 
   cylinder:
     src: $result += $weight * vec2(sin($x), $y);
+
+  rectangles:
+    param:
+      rectangles_x: {}
+      rectangles_y: {}
+    src: |-
+      $result += $weight 
+      * vec2(
+        ($rectangles_x == 0)? $x: ((2 * floor($x/$rectangles_x) + 1.0) * $rectangles_x - $x),
+        ($rectangles_y == 0)? $y: ((2 * floor($y/$rectangles_y) + 1.0) * $rectangles_y - $y)
+      );

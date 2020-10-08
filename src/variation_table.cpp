@@ -70,13 +70,87 @@ std::stack<std::string> get_ordering(const adj_desc_t& adj) {
     return ordering;
 }
 
+std::string make_param_str(const nlohmann::json& v) { return "fp[" + std::to_string(v.get<int>()) + "]";}
+
+std::string variation_table::make_xform_src(const flame_xform& xform, const nlohmann::json& xform_map, const std::string& xform_name) {
+    std::string func_name = "apply_xform_" + xform_name;
+    std::string xform_result{};
+
+    // resolve variation weights
+    for (auto& [var_name, var] : xform.variations) {
+        std::string var_src{};
+        var_src += "// variation: " + var_name + "\n";
+        var_src += replace_macro(vars_[var_name].source, "weight", make_param_str(xform_map["variations"][var_name])) + "\n";
+        if (var_name == "pre_blur") xform_result = var_src + xform_result; else xform_result += var_src;
+    }
+
+    // resolve parameters
+    for (auto& [p_name, val] : xform.var_param) {
+        xform_result = replace_macro(xform_result, p_name, make_param_str(xform_map["param"][p_name]));
+    }
+
+    // resolve precalc macros
+    auto macros = find_macros(xform_result);
+    std::erase_if(macros, [this](auto name) {return !is_common(name); });
+
+    std::map<std::string, std::set<std::string>> macro_adj;
+    for (auto& m : macros) {
+        auto deps = find_macros(common(m));
+        for (auto d : deps) {
+            if (is_common(d) && !macro_adj.contains(d)) macro_adj[d] = find_macros(common(m));
+        }
+        macro_adj[m] = find_macros(common(m));
+    }
+
+    auto order = get_ordering(macro_adj);
+    while (order.size()) {
+        xform_result = "float " + order.top() + " = " + common(order.top()) + ";\n" + xform_result;
+        order.pop();
+    }
+
+    // append affine
+    std::string affine = "\tv = vec2($c00 * v.x + $c10 * v.y + $c20, $c01 * v.x + $c11 * v.y + $c21);\n";
+    xform_result = affine + "vec2 result = vec2(0.0, 0.0);\n" + xform_result;
+
+    // resolve affine
+    for (int c = 0; c < 3; c++) {
+        for (int r = 0; r < 2; r++) {
+            std::string name = "c" + std::to_string(c) + std::to_string(r);
+            int index = c * 2 + r;
+            xform_result = replace_macro(xform_result, name, make_param_str(xform_map["affine"][index]));
+        }
+    }
+
+    // append post
+    if (xform.post) {
+        xform_result += "\tresult = vec2($p00 * result.x + $p10 * result.y + $p20, $p01 * result.x + $p11 * result.y + $p21);\n";
+
+        // resolve post
+        for (int c = 0; c < 3; c++) {
+            for (int r = 0; r < 2; r++) {
+                std::string name = "p" + std::to_string(c) + std::to_string(r);
+                int index = c * 2 + r;
+                xform_result = replace_macro(xform_result, name, make_param_str(xform_map["post"][index]));
+            }
+        }
+    }
+
+    //xform_result += fmt::format("if(make_xform_dist) atomicAdd(xform_invoke_count[{}], 1);\n", i);
+    xform_result += "return result;\n";
+    boost::replace_all(xform_result, "\n", "\n\t");
+    boost::erase_all(xform_result, "$");
+
+    std::string final_xform = "vec2 " + func_name + "(vec2 v) {\n" + xform_result + "\n}\n";
+
+    return final_xform;
+}
+
 std::string variation_table::compile_flame_xforms(const flame& f, const nlohmann::json& buf_map)
 {
-    auto make_param_str = [](const nlohmann::json& v) { return "fp[" + std::to_string(v.get<int>()) + "]"; };
     std::string compiled{};
 
-    std::string disp_func = std::string("vec4 dispatch(vec2 v){\n")
-        + "float ratio = gl_WorkGroupID.x / float(gl_NumWorkGroups.x);\n"
+    std::string disp_func = std::string("vec4 dispatch(vec3 v){\n")
+        + "float ratio = float(gl_WorkGroupID.x) / float(gl_NumWorkGroups.x);\n"
         + "float sum = 0.0;\n";
 
     // concat sources
@@ -87,7 +161,7 @@ std::string variation_table::compile_flame_xforms(const flame& f, const nlohmann
         std::string xform_result{};
 
         std::string dispatch_invoke = 
-            fmt::format("return vec4({}(v), {}, {});\n", func_name, make_param_str(xform_map["color"]),make_param_str(xform_map["color_speed"]));
+            fmt::format("return vec4({}(v.xy), {} * {} + (1.0 - {}) * ((first_run)? randf(): v.z) , {});\n", func_name, make_param_str(xform_map["color"]),make_param_str(xform_map["color_speed"]), make_param_str(xform_map["color_speed"]), make_param_str(xform_map["opacity"]));
         // append to the dispatch function
         if (i + 1 == f.xforms.size()) {
             disp_func += dispatch_invoke;
@@ -97,74 +171,13 @@ std::string variation_table::compile_flame_xforms(const flame& f, const nlohmann
             disp_func += "if(sum >= ratio) " + dispatch_invoke;
         }
 
-        // resolve variation weights
-        for (auto& [var_name, var] : xform.variations) {
-            std::string var_src{};
-            var_src += "// variation: " + var_name + "\n";
-            var_src += replace_macro(vars_[var_name].source, "weight", make_param_str(buf_map["xforms"][i]["variations"][var_name])) + "\n";
-            if (var_name == "pre_blur") xform_result = var_src + xform_result; else xform_result += var_src;
-        }
-
-        // resolve parameters
-        for (auto& [p_name, val] : xform.var_param) {
-            xform_result = replace_macro(xform_result, p_name, make_param_str(buf_map["xforms"][i]["param"][p_name]));
-        }
-
-        // resolve precalc macros
-        auto macros = find_macros(xform_result);
-        std::erase_if(macros, [this](auto name) {return !is_common(name); });
-
-        std::map<std::string, std::set<std::string>> macro_adj;
-        for (auto& m : macros) {
-            auto deps = find_macros(common(m));
-            for (auto d : deps) {
-                if(is_common(d) && !macro_adj.contains(d)) macro_adj[d] = find_macros(common(m));
-            }
-            macro_adj[m] = find_macros(common(m));
-        }
-
-        auto order = get_ordering(macro_adj);
-        while (order.size()) {
-            xform_result = "float " + order.top() + " = " + common(order.top()) + ";\n" + xform_result;
-            order.pop();
-        }
-       
-        // append affine
-        std::string affine = "\tv = vec2($c00 * v.x + $c10 * v.y + $c20, $c01 * v.x + $c11 * v.y + $c21);\n";
-        xform_result = affine + "vec2 result = vec2(0.0, 0.0);\n" + xform_result;
-
-        // resolve affine
-        for (int c = 0; c < 3; c++) {
-            for (int r = 0; r < 2; r++) {
-                std::string name = "c" + std::to_string(c) + std::to_string(r);
-                int index = c * 2 + r;
-                xform_result = replace_macro(xform_result, name, make_param_str(buf_map["xforms"][i]["affine"][index]));
-            }
-        }
-
-        // append post
-        if (xform.post) {
-            xform_result += "\tresult = vec2($p00 * result.x + $p10 * result.y + $p20, $p01 * result.x + $p11 * result.y + $p21);\n";
-
-            // resolve post
-            for (int c = 0; c < 3; c++) {
-                for (int r = 0; r < 2; r++) {
-                    std::string name = "p" + std::to_string(c) + std::to_string(r);
-                    int index = c * 2 + r;
-                    xform_result = replace_macro(xform_result, name, make_param_str(buf_map["xforms"][i]["post"][index]));
-                }
-            }
-        }
-
-        xform_result += fmt::format("if(make_xform_dist) atomicAdd(xform_invoke_count[{}], 1);\n", i);
-        xform_result += "return result;\n";
-        boost::replace_all(xform_result, "\n", "\n\t");
-        boost::erase_all(xform_result, "$");
-
-        std::string final_xform = "vec2 " + func_name + "(vec2 v) {\n" + xform_result + "\n}\n";
-
-        compiled += final_xform;
+        compiled += make_xform_src(xform, xform_map, std::to_string(i));
     }
+
+    if (f.final_xform) {
+        compiled += make_xform_src(f.final_xform.value(), buf_map["final_xform"], "final");
+    }
+    else compiled += "vec2 apply_xform_final(vec2 v) { return v; }\n";
 
     boost::replace_all(disp_func, "\n", "\n\t");
     disp_func += "\n}";

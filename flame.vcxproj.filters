@@ -42,6 +42,9 @@
     <ClCompile Include="src\util.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="src\buffer_cache.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <None Include="variations.yaml">
@@ -83,6 +86,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="src\shaders.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="src\buffer_cache.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

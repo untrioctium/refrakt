@@ -148,6 +148,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="src\buffer_cache.cpp" />
     <ClCompile Include="src\gl_util.cpp" />
     <ClCompile Include="src\hammersley.cpp" />
     <ClCompile Include="src\main.cpp" />
@@ -166,6 +167,7 @@
     <None Include="variations.yaml" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="src\buffer_cache.hpp" />
     <ClInclude Include="src\buffer_objects.hpp" />
     <ClInclude Include="src\flame.hpp" />
     <ClInclude Include="src\shaders.hpp" />

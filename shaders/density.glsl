@@ -9,9 +9,14 @@ uniform int estimator_radius;
 uniform int estimator_min;
 uniform float estimator_curve;
 
+layout(std430, binding = 8) buffer bins_buffer
+{
+	vec4 bins[];
+};
+
 void main() {
 	ivec2 pos = ivec2(gl_WorkGroupID.xy);
-	vec4 input_val = imageLoad(in_hist, pos);
+	vec4 input_val = bins[pos.y * gl_NumWorkGroups.x + pos.x];
 
 	int radius = max(
 		estimator_min, 
@@ -24,7 +29,7 @@ void main() {
 		)
 	);
 
-	if( radius == 0  ) {
+	if( radius == 0 ) {
 		imageStore(out_hist, pos, input_val);
 		return;
 	}
@@ -39,7 +44,7 @@ void main() {
 			if(sample_dist > 1.0f) continue;
 
 			ivec2 sample_pos = pos + ivec2(x, y);
-			accum += (1 - sample_dist * sample_dist) * imageLoad(in_hist, sample_pos);
+			accum += (1 - sample_dist * sample_dist) * bins[sample_pos.y * gl_NumWorkGroups.x + sample_pos.x];
 		}
 	}
 

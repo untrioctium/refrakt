@@ -22,3 +22,23 @@ std::array<T, Size> parse_strings(const std::string&& in, Conv&& cv) {
 
     return ret;
 }
+
+template <std::size_t Samples>
+class moving_average {
+public:
+
+    template<typename T>
+    float add(T v) {
+        head++;
+        if (head == Samples) head = 0;
+        samples_[head] = static_cast<float>(v);
+
+        float accum = 0.0;
+        for (auto& v : samples_) accum += v;
+        return accum / float(Samples);
+    }
+
+private:
+    std::size_t head = 0;
+    std::array<float, Samples> samples_ = { 0.0 };
+};

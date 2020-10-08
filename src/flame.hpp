@@ -20,6 +20,7 @@ struct flame_xform {
 
     bool animate;
     float opacity;
+
 };
 
 
@@ -37,6 +38,10 @@ struct flame {
     int estimator_min;
     int estimator_radius;
     float estimator_curve;
+
+    float gamma;
+    float vibrancy;
+    float brightness;
 
     template<typename Func> void for_each_xform(Func&& func) {
         int idx = 0;

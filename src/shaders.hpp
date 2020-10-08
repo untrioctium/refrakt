@@ -12,10 +12,25 @@ public:
     template<typename T> void set_uniform(const std::string& name, T value) {
         auto location = glGetUniformLocation(shader_, name.c_str());
 
-        if constexpr (std::is_same_v<T, unsigned int>) glUniform1ui(location, value);
-        else if constexpr (std::is_same_v<T, bool> || std::is_same_v<T, int>) glUniform1i(location, (int)value);
+        // basic types
+        if constexpr (std::is_same_v<T, bool> || std::is_same_v<T, int>) glUniform1i(location, (int)value);
+        else if constexpr (std::is_same_v<T, unsigned int>) glUniform1ui(location, value);
         else if constexpr (std::is_same_v<T, float>) glUniform1f(location, value);
+
+        // vecs
+        else if constexpr (std::is_same_v <T, glm::vec2>) glUniform2fv(location, 1, glm::value_ptr(value));
+        else if constexpr (std::is_same_v <T, glm::vec3>) glUniform3fv(location, 1, glm::value_ptr(value));
+        else if constexpr (std::is_same_v <T, glm::vec4>) glUniform4fv(location, 1, glm::value_ptr(value));
+        else if constexpr (std::is_same_v <T, glm::uvec2>) glUniform2uiv(location, 1, glm::value_ptr(value));
+        else if constexpr (std::is_same_v <T, glm::uvec3>) glUniform3uiv(location, 1, glm::value_ptr(value));
+        else if constexpr (std::is_same_v <T, glm::uvec4>) glUniform4uiv(location, 1, glm::value_ptr(value));
+        else if constexpr (std::is_same_v <T, glm::ivec2>) glUniform2iv(location, 1, glm::value_ptr(value));
+        else if constexpr (std::is_same_v <T, glm::ivec3>) glUniform3iv(location, 1, glm::value_ptr(value));
+        else if constexpr (std::is_same_v <T, glm::ivec4>) glUniform4iv(location, 1, glm::value_ptr(value));
+
+        // mats
         else if constexpr (std::is_same_v<T, glm::mat4>) glUniformMatrix4fv(location, 1, 0, glm::value_ptr(value));
+
     }
 
     GLuint name() { return shader_; }
