@@ -18,7 +18,6 @@
 #include "buffer_objects.hpp"
 #include "buffer_cache.hpp"
 #include "variation_table.hpp"
-#include "util.hpp"
 #include "shaders.hpp"
 
 #include "flame.hpp"
@@ -145,6 +144,8 @@ buffer_map_t make_shader_buffer_map(const flame& flame) {
 
     if (flame.final_xform) buffer_map["final_xform"] = make_xform_map(flame.final_xform.value());
 
+    buffer_map["total"] = counter++;
+
     return buffer_map;
 }
 
@@ -244,7 +245,7 @@ int main(int, char**)
     storage_buffer<float> samples{ make_sample_points(num_points) };
 
     auto variations = variation_table{ "variations.yaml" };
-    auto flame_def = load_flame("flames/electricsheep.247.27656.flam3", variations);
+    auto flame_def = load_flame("flames/electricsheep.247.27541.flam3", variations);
     auto buffer_map = make_shader_buffer_map(flame_def);
     auto shader_src = replace_macro(read_file("shaders/flame.glsl"), "varsource", variations.compile_flame_xforms(flame_def, buffer_map));
 
@@ -356,7 +357,8 @@ int main(int, char**)
 
         ImGui::Begin("Debug");
         ImGui::Text("FPS Avg: %f", 1.0/fps_avg);
-        ImGui::Text("Parts per second: %fM", drawn_parts / fps_avg / 1'000'000.0f);
+        ImGui::Text("Parts per second: %.1fM", drawn_parts / fps_avg / 1'000'000.0f);
+        ImGui::Text("Parts per frame: %.1fM", drawn_parts / 1'000'000.0f);
         ImGui::End();
 
         ImGui::Begin("Passes");
@@ -409,6 +411,14 @@ int main(int, char**)
             }
         } ImGui::End(); //Flame Info
 
+        float rotation = DEGREES_PER_SECOND * dt;
+
+        //Do rotation
+        for (auto& x : flame_def.xforms) {
+            if (x.animate) x.affine = rotate_affine(x.affine, rotation);
+            needs_clear = true;
+        }
+
         if (needs_clear) {
             glClearNamedBufferData(bins.name(), GL_RGBA32F, GL_RGBA, GL_FLOAT, nullptr);
         }
@@ -416,12 +426,7 @@ int main(int, char**)
         // Rendering
         int display_w, display_h;
 
-        float rotation = DEGREES_PER_SECOND * dt;
 
-        // Do rotation
-        //for (auto& x : flame_def.xforms) {
-        //    if (x.animate) x.affine = rotate_affine(x.affine, rotation);
-        //}
 
         timer perf_timer;
         timer perf_timer_total;
@@ -433,6 +438,8 @@ int main(int, char**)
 
         glUseProgram(cs.name());
 
+        cs.set_uniform<int>("total_params", buffer_map["total"]);
+
         perf_timer.reset();
         if (needs_clear)
         {
@@ -441,21 +448,22 @@ int main(int, char**)
             glBindBufferBase(GL_SHADER_STORAGE_BUFFER, out_buf_pos, pos[0].name());
             cs.set_uniform<bool>("make_xform_dist", false);
             cs.set_uniform<bool>("random_read", true);
-            cs.set_uniform<bool>("random_write", false);
+            cs.set_uniform<bool>("random_write", true);
             cs.set_uniform<bool>("first_run", true);
             cs.set_uniform<bool>("do_draw", false);
             cs.set_uniform<float>("rand_seed", dist(generator));
             cs.set_uniform<unsigned int>("shuf_buf_idx_in", *(shuf++));
-            glDispatchCompute(num_points / 32, 1, 1);
+            cs.set_uniform<unsigned int>("shuf_buf_idx_out", *(shuf++));
+            glDispatchCompute(num_points / 128, 1, 1);
             glMemoryBarrier(GL_ALL_BARRIER_BITS);
             glFinish();
-            perf_timer_results["sample"] = perf_timer.time<timer::ns>();
+            //perf_timer_results["sample"] = perf_timer.time<timer::ns>();
 
             cs.set_uniform<bool>("random_read", true);
             cs.set_uniform<bool>("random_write", true);
             cs.set_uniform<bool>("first_run", false);
 
-            perf_timer.reset();
+            //perf_timer.reset();
             // warm up passes, random read and write
             for (int i = 0; i < warmup_passes; i++) {
                 glBindBufferBase(GL_SHADER_STORAGE_BUFFER, in_buf_pos, pos[i & 1].name());
@@ -463,7 +471,7 @@ int main(int, char**)
                 cs.set_uniform<float>("rand_seed", dist(generator));
                 cs.set_uniform<unsigned int>("shuf_buf_idx_in", *(shuf++));
                 cs.set_uniform<unsigned int>("shuf_buf_idx_out", *(shuf++));
-                glDispatchCompute(num_points / 32, 1, 1);
+                glDispatchCompute(num_points / 128, 1, 1);
                 glMemoryBarrier(GL_ALL_BARRIER_BITS);
                 glFinish();
             }
@@ -501,7 +509,7 @@ int main(int, char**)
                 cs.set_uniform<glm::vec2>("win_min", win_min);
                 cs.set_uniform<glm::uvec2>("bin_dims", glm::uvec2{ 1280, 720 });
 
-                glDispatchCompute(num_points / 32, 1, 1);
+                glDispatchCompute(num_points / 128, 1, 1);
                 glMemoryBarrier(GL_ALL_BARRIER_BITS);
 //                glFinish();
             }

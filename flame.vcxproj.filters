@@ -22,6 +22,9 @@
     <Filter Include="Config\Shaders">
       <UniqueIdentifier>{1817a6e9-c8e3-400d-9aa1-d6232e286018}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Config\Shaders\Includes">
+      <UniqueIdentifier>{821e42d2-0fd8-4ea1-950e-bc715f365319}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\main.cpp">
@@ -70,6 +73,15 @@
     </None>
     <None Include="shaders\density.glsl">
       <Filter>Config\Shaders</Filter>
+    </None>
+    <None Include="shaders\include\buffers.glsl">
+      <Filter>Config\Shaders\Includes</Filter>
+    </None>
+    <None Include="shaders\include\random.glsl">
+      <Filter>Config\Shaders\Includes</Filter>
+    </None>
+    <None Include="shaders\include\math.glsl">
+      <Filter>Config\Shaders\Includes</Filter>
     </None>
   </ItemGroup>
   <ItemGroup>

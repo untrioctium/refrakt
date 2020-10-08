@@ -6,6 +6,7 @@
 #include <string>
 #include <vector>
 #include <iostream>
+#include "util.hpp"
 
 class shader_base {
 public:
@@ -42,7 +43,17 @@ protected:
     static std::pair<bool, GLuint> compile_source(GLuint type, const std::string& src) {
         GLuint prog = glCreateShader(type);
 
-        const char* csrc = src.c_str();
+        std::string src_with_includes = src;
+        auto macros = find_macros(src_with_includes);
+
+        for (auto& macro : macros) {
+            if (macro.find("include_") == 0) {
+                std::string include_name = macro.substr(macro.find("_") + 1);
+                src_with_includes = replace_macro(src_with_includes, macro, get_include_source(include_name));
+            }
+        }
+
+        const char* csrc = src_with_includes.c_str();
         glShaderSource(prog, 1, &csrc, nullptr);
         glCompileShader(prog);
         int success;
@@ -72,6 +83,10 @@ protected:
         static thread_local char info_log[2048];
         glGetProgramInfoLog(shader_, 2048, NULL, info_log);
         return info_log;
+    }
+
+    static std::string get_include_source(const std::string& include_name) {
+        return read_file("shaders/include/" + include_name + ".glsl");
     }
 
 	GLuint shader_;

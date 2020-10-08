@@ -159,6 +159,9 @@
   <ItemGroup>
     <None Include="shaders\density.glsl" />
     <None Include="shaders\flame.glsl" />
+    <None Include="shaders\include\buffers.glsl" />
+    <None Include="shaders\include\math.glsl" />
+    <None Include="shaders\include\random.glsl" />
     <None Include="shaders\particle_frag.glsl" />
     <None Include="shaders\particle_vert.glsl" />
     <None Include="shaders\quad_frag.glsl" />
