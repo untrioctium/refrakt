@@ -39,10 +39,10 @@ public:
     bool is_common(const std::string& name) const { return common_.contains(name); }
 
     std::string param_owner(const std::string& param) const { return param_owners_.at(param); };
-    const std::vector<std::string>& get_parameters_for_xform(const std::string& name) const { return vars_.at(name).param; }
+    const std::vector<std::string>& get_parameters_for_variation(const std::string& name) const { return vars_.at(name).param; }
 
     const variation_definition& variation(const std::string& name) const { return vars_.at(name); }
-    const auto variations() const { return vars_; }
+    const auto& variations() const { return vars_; }
 
     std::string common(const std::string& name) const { return common_.at(name); }
 

@@ -11,13 +11,10 @@ common:
 
 variations:
   linear:
-    src: $result += $weight * $v;
-    result: $v
+    src: $v
 
   sinusoidal:
-    src: $result += $weight * sin($v);
-    result: 
-      sin: $v
+    src: sin($v)
 
   spherical:
     src: $result += $v * $weight / ($rsq + EPS);

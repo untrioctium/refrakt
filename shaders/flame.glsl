@@ -41,13 +41,14 @@ void main() {
 	pos_out[o_idx] = vec4(result.xyz, 0.0);
 
 	if(do_draw) {
-		vec2 pos = (apply_xform_final(result.xy) - win_min) * scale;
+		vec2 pos = (result.xy - win_min) * scale;
 		ivec2 coords = ivec2(floor(pos));
 
 		if( coords.x >= 0 && coords.y >= 0 && coords.x < bin_dims.x && coords.y < bin_dims.y && result.w > 0 ) {
 			// 100% not thread safe in any manner
 			// it just werks though?
 			bins[(bin_dims.y - coords.y) * bin_dims.x + coords.x] += vec4(palette[min(255, uint(ceil(result.z * 255.0)))].rgb, result.w);
+			atomicAdd(xform_invoke_count[0], 1);
 		}
 	}
 }

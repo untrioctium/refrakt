@@ -7,7 +7,6 @@
 #include <random>
 
 #include <array>
-#include <chrono>
 #include <vector>
 #include <iostream>
 #include <optional>
@@ -28,30 +27,6 @@ std::vector<float> make_sample_points(std::uint32_t count);
 std::vector<std::uint32_t> create_shuffle_buffer(std::uint32_t size);
 void make_shuffle_buffers(std::uint32_t size, std::size_t count);
 
-class timer {
-public:
-    using ms = std::chrono::milliseconds;
-    using us = std::chrono::microseconds;
-    using ns = std::chrono::nanoseconds;
-
-    timer() {
-        reset();
-    }
-
-    void reset() {
-        mark_ = clock::now();
-    }
-
-    template<typename Resolution>
-    auto time() {
-        auto now = clock::now();
-        return std::chrono::duration_cast<Resolution>(now - mark_).count();
-    }
-
-private:
-    using clock = std::chrono::high_resolution_clock;
-    decltype(clock::now()) mark_;
-};
 
 flame_xform::affine_t rotate_affine(const flame_xform::affine_t& a, float deg) {
     float rad = 0.01745329251f * deg;
@@ -241,7 +216,7 @@ int main(int, char**)
     bool show_another_window = false;
     ImVec4 clear_color = ImVec4(0.0f, 0.0f, 0.0f, 1.00f);
 
-    std::size_t num_points = 512 * 512;
+    std::size_t num_points = 256 * 512;
     storage_buffer<float> samples{ make_sample_points(num_points) };
 
     auto variations = variation_table{ "variations.yaml" };
@@ -327,10 +302,14 @@ int main(int, char**)
 
     bool clear_parts = true;
     bool needs_clear = true;
-    float scale_constant = 10000;
+    float scale_constant = 4;
     glBindVertexArray(vao[0]);
 
     moving_average<60> fps;
+
+    bool animate = false;
+
+    long long accumulated = 0;
 
     // Main loop
     while (!glfwWindowShouldClose(window))
@@ -353,14 +332,6 @@ int main(int, char**)
         ImGui::NewFrame();
         ImGui::ShowDemoWindow();
 
-        float drawn_parts = float(drawing_passes) * num_points;
-
-        ImGui::Begin("Debug");
-        ImGui::Text("FPS Avg: %f", 1.0/fps_avg);
-        ImGui::Text("Parts per second: %.1fM", drawn_parts / fps_avg / 1'000'000.0f);
-        ImGui::Text("Parts per frame: %.1fM", drawn_parts / 1'000'000.0f);
-        ImGui::End();
-
         ImGui::Begin("Passes");
         ImGui::InputInt("Warmup Passes", &warmup_passes, 2, 2);
         ImGui::InputInt("Drawing Passes", &drawing_passes, 2, 2);
@@ -369,7 +340,8 @@ int main(int, char**)
         ImGui::Begin("Flame Info"); {
             needs_clear |= ImGui::DragFloat("Scale", &flame_def.scale, 1, 1, 1000);
             needs_clear |= ImGui::DragFloat2("Center", flame_def.center.data(), .01, -5, 5);
-            ImGui::InputFloat("Scale Constant", &scale_constant, 1, 100, .001);
+            needs_clear |= ImGui::Checkbox("Animate", &animate);
+            ImGui::InputFloat("Scale Constant", &scale_constant, 1, 5, .00001);
             ImGui::Separator();
             needs_clear |= ImGui::DragInt("Estimator Radius", &flame_def.estimator_radius, 0.005f, 0, 20);
             needs_clear |= ImGui::DragInt("Estimator Min", &flame_def.estimator_min, 0.005f, 0, 20);
@@ -394,7 +366,7 @@ int main(int, char**)
                     for (auto& [name,v] : xform.variations) {
                         ImGui::Separator();
                         needs_clear |= ImGui::DragFloat((name + hash).c_str(), &v, .001, -100, 100);
-                        for (auto& p_name : variations.get_parameters_for_xform(name)) {
+                        for (auto& p_name : variations.get_parameters_for_variation(name)) {
                             needs_clear |= ImGui::DragFloat((p_name + hash).c_str(), &xform.var_param.at(p_name), .01, -20, 20);
                         }
                     }
@@ -414,13 +386,15 @@ int main(int, char**)
         float rotation = DEGREES_PER_SECOND * dt;
 
         //Do rotation
-        for (auto& x : flame_def.xforms) {
-            if (x.animate) x.affine = rotate_affine(x.affine, rotation);
-            needs_clear = true;
-        }
+        if(animate)
+            for (auto& x : flame_def.xforms) {
+                if (x.animate) x.affine = rotate_affine(x.affine, rotation);
+                needs_clear = true;
+            }
 
         if (needs_clear) {
             glClearNamedBufferData(bins.name(), GL_RGBA32F, GL_RGBA, GL_FLOAT, nullptr);
+            accumulated = 0;
         }
 
         // Rendering
@@ -562,7 +536,7 @@ int main(int, char**)
             glUseProgram(tonemap_cs.name());
             glBindImageTexture(0, render_targets[1].name(), 0, GL_FALSE, 0, GL_READ_WRITE, GL_RGBA32F);
             tonemap_cs.set_uniform<int>("image", 0);
-            tonemap_cs.set_uniform<float>("scale_constant", 1.0/scale_constant);
+            tonemap_cs.set_uniform<float>("scale_constant", 1.0/pow(10.0, scale_constant));
             tonemap_cs.set_uniform<float>("gamma", flame_def.gamma);
             tonemap_cs.set_uniform<float>("brightness", flame_def.brightness);
             tonemap_cs.set_uniform<float>("vibrancy", flame_def.vibrancy);
@@ -595,6 +569,19 @@ int main(int, char**)
             SHOW_PERF_TIMER("density");
             SHOW_PERF_TIMER("tonemap");
         }ImGui::End();
+
+        float drawn_parts = float(drawing_passes) * num_points;
+
+        auto total_binned = atomic_counters.get_one(0);
+        accumulated += total_binned;
+
+        ImGui::Begin("Debug");
+        ImGui::Text("FPS Avg: %f", 1.0 / fps_avg);
+        ImGui::Text("Parts per second: %.1fM", drawn_parts / fps_avg / 1'000'000.0f);
+        ImGui::Text("Parts per frame: %.1fM", drawn_parts / 1'000'000.0f);
+        ImGui::Text("Binned this frame: %.1fM", total_binned / 1'000'000.0f);
+        ImGui::Text("Total binned this image: %.1fM", accumulated / 1'000'000.0f );
+        ImGui::End();
 
         ImGui::Render();
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());

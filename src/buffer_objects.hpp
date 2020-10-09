@@ -34,6 +34,12 @@ public:
 		glNamedBufferSubData(name_, 0, item_size_ * size_, (void*)src);
 	}
 
+	DataType get_one(std::size_t idx) {
+		DataType result;
+		glGetNamedBufferSubData(name_, idx * item_size_, item_size_,(void*) &result);
+		return result;
+	}
+
 private:
 
 	static inline const std::size_t item_size_ = sizeof(DataType);

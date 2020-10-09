@@ -3,12 +3,13 @@
 #include <string>
 #include <set>
 #include <sstream>
+#include <chrono>
 
 std::string replace_macro(const std::string& str, const std::string& macro, const std::string& value);
-
 std::set<std::string> find_macros(const std::string& str);
-
 std::string read_file(const std::string& path);
+
+
 
 template<typename T, std::size_t Size, typename Conv>
 std::array<T, Size> parse_strings(const std::string&& in, Conv&& cv) {
@@ -43,4 +44,29 @@ public:
 private:
     std::size_t head = 0;
     std::array<float, Samples> samples_ = { 0.0 };
+};
+
+class timer {
+public:
+    using ms = std::chrono::milliseconds;
+    using us = std::chrono::microseconds;
+    using ns = std::chrono::nanoseconds;
+
+    timer() {
+        reset();
+    }
+
+    void reset() {
+        mark_ = clock::now();
+    }
+
+    template<typename Resolution>
+    auto time() {
+        auto now = clock::now();
+        return std::chrono::duration_cast<Resolution>(now - mark_).count();
+    }
+
+private:
+    using clock = std::chrono::high_resolution_clock;
+    decltype(clock::now()) mark_;
 };
