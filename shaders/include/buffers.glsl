@@ -15,7 +15,7 @@ layout(std430, binding = 4) buffer shuffle_buffer
 
 layout(std430,binding = 5) buffer parameter_buffer
 {
-	float fp[];
+	float fp_base[];
 };
 
 layout(std430, binding = 6) buffer palette_buffer
@@ -32,3 +32,14 @@ layout(std430, binding = 8) buffer bins_buffer
 {
 	vec4 bins[];
 };
+
+layout(std430, binding = 9) buffer fp_inflated_buffer
+{
+	float fp_inflated[];
+};
+
+layout(std430, binding = 10) buffer flame_counters
+{
+	uint flame_atomic_counters[];
+};
+

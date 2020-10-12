@@ -18,6 +18,11 @@ void main() {
 	ivec2 pos = ivec2(gl_WorkGroupID.xy);
 	vec4 input_val = bins[pos.y * gl_NumWorkGroups.x + pos.x];
 
+	if( input_val.w < 1 ) {
+		imageStore(out_hist, pos, input_val);
+		return;
+	}
+
 	int radius = max(
 		estimator_min, 
 		min(

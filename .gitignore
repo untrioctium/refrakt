@@ -1,5 +1,8 @@
+screenshot.png
+fonts/
 Debug/
 flames/
 imgui.ini
 x64/
 .vs/
+cache/

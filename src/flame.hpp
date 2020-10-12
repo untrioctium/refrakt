@@ -6,6 +6,12 @@
 #include <cstddef>
 #include <vector>
 
+struct motion_info {
+    float freq;
+    std::string function;
+    float amplitude;
+};
+
 struct flame_xform {
     using affine_t = std::array<float, 6>;
 
@@ -21,9 +27,8 @@ struct flame_xform {
     bool animate;
     float opacity;
 
+    std::map<std::string, motion_info> motion;
 };
-
-
 
 struct flame {
     std::vector<flame_xform> xforms;

@@ -1,18 +1,7 @@
-uniform float rand_seed;
-
-uint hash( uint x ) {
-    x += ( x << 10u );
-    x ^= ( x >>  6u );
-    x += ( x <<  3u );
-    x ^= ( x >> 11u );
-    x += ( x << 15u );
-    return x;
-}
-
-// Compound versions of the hashing algorithm I whipped together.
-uint hash( uvec2 v ) { return hash( v.x ^ hash(v.y)                         ); }
-uint hash( uvec3 v ) { return hash( v.x ^ hash(v.y) ^ hash(v.z)             ); }
-uint hash( uvec4 v ) { return hash( v.x ^ hash(v.y) ^ hash(v.z) ^ hash(v.w) ); }
+layout(std430, binding = 11) buffer rand_states
+{
+	uvec4 rs[];
+};
 
 // Construct a float with half-open range [0:1] using low 23 bits.
 // All zeroes yields 0.0, all ones yields the next smallest representable value below 1.0.
@@ -27,17 +16,24 @@ float floatConstruct( uint m ) {
     return f - 1.0;                        // Range [0:1]
 }
 
+#define rot32(x,k) (((x)<<(k))|((x)>>(32-(k))))
+uint ranval() {
+    uint off = gl_WorkGroupID.y * gl_NumWorkGroups.x * gl_WorkGroupSize.x + gl_GlobalInvocationID.x;
+    uvec4 x = rs[off];
 
-// Pseudo-random value in half-open range [0:1].
-float random( float x ) { return floatConstruct(hash(floatBitsToUint(x))); }
-float random( vec2  v ) { return floatConstruct(hash(floatBitsToUint(v))); }
-float random( vec3  v ) { return floatConstruct(hash(floatBitsToUint(v))); }
-float random( vec4  v ) { return floatConstruct(hash(floatBitsToUint(v))); }
-
-vec3 randstate = vec3(sin(gl_GlobalInvocationID.x), rand_seed, 1.241225239120831);
+    uint e = x.x - rot32(x.y, 27);
+    x.x = x.y ^ rot32(x.z, 17);
+    x.y = x.z + x.w;
+    x.z = x.w + e;
+    x.w = e + x.x;
+    rs[off] = x;
+    return x.x;
+}
 
 float randf() {
-	randstate.z += 1.120491121512120124;
-	randstate.z *= rand_seed;
-    return random(randstate);
+    return floatConstruct(ranval());
+}
+
+bool randbit() {
+    return (ranval() & 1) == 0;
 }

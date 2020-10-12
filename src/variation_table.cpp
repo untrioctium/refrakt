@@ -8,10 +8,10 @@
 #include "util.hpp"
 #include "variation_table.hpp"
 
-using optimizer_pred_t = std::function<bool(const flame_xform&)>;
+using optimizer_pred_t = std::function<bool(const flame_xform&, const variation_table&)>;
 using optimizer_t = std::function<std::pair<bool, std::string>(const flame_xform&, const nlohmann::json&, const variation_table&)>;
 
-std::string make_param_str(const nlohmann::json& v) { return "fp[" + std::to_string(v.get<int>()) + "]"; }
+std::string make_param_str(const nlohmann::json& v, int offset = 0) { return "fp[" + std::to_string(v.get<int>() /*- offset*/) + "]"; }
 
 using adj_desc_t = std::map<std::string, std::set<std::string>>;
 
@@ -40,28 +40,32 @@ std::stack<std::string> get_ordering(const adj_desc_t& adj) {
 }
 
 void resolve_affine(std::string& src, const nlohmann::json& buf_map) {
+    int offset = buf_map["meta"]["start"];
+
     // resolve affine
     for (int c = 0; c < 3; c++) {
         for (int r = 0; r < 2; r++) {
             std::string name = "c" + std::to_string(c) + std::to_string(r);
             int index = c * 2 + r;
-            src = replace_macro(src, name, make_param_str(buf_map["affine"][index]));
+            src = replace_macro(src, name, make_param_str(buf_map["affine"][index], offset));
         }
     }
 }
 
 void resolve_post(std::string& src, const nlohmann::json& buf_map) {
+    int offset = buf_map["meta"]["start"];
+
     // resolve affine
     for (int c = 0; c < 3; c++) {
         for (int r = 0; r < 2; r++) {
             std::string name = "p" + std::to_string(c) + std::to_string(r);
             int index = c * 2 + r;
-            src = replace_macro(src, name, make_param_str(buf_map["post"][index]));
+            src = replace_macro(src, name, make_param_str(buf_map["post"][index], offset));
         }
     }
 }
 
-#define OPTIMIZER_PRED [](const flame_xform& x) -> bool
+#define OPTIMIZER_PRED [](const flame_xform& x, const variation_table& vt) -> bool
 #define OPTIMIZER_BODY [](const flame_xform& x, const nlohmann::json& xmap, const variation_table& vt) -> std::pair<bool, std::string>
 
 auto& get_optimizers() {
@@ -76,7 +80,8 @@ auto& get_optimizers() {
             },
             OPTIMIZER_BODY {
                 static const std::string base = "$weight * vec2(fma($c00, v.x, fma($c10, v.y, $c20)), fma($c01, v.x, fma($c11, v.y, $c21)))";
-                std::string src = replace_macro(base, "weight", make_param_str(xmap["variations"]["linear"]));
+                int offset = xmap["meta"]["start"];
+                std::string src = replace_macro(base, "weight", make_param_str(xmap["variations"]["linear"], offset));
                 resolve_affine(src, xmap);
                 return {true, src};
             }
@@ -88,20 +93,28 @@ auto& get_optimizers() {
             OPTIMIZER_PRED { return true; },
             OPTIMIZER_BODY {                
                 std::string xform_result{};
-
+                int offset = xmap["meta"]["start"];
                 bool first_var = true;
+                std::string affine = "\tv.xy = vec2(fma($c00, v.x, fma($c10, v.y, $c20)), fma($c01, v.x, fma($c11, v.y, $c21)));\n";
                 // resolve variations and weights
                 for (auto& [var_name, var] : x.variations) {
+                    const auto& vd = vt.variation(var_name);
                     std::string var_src{};
                     var_src += "// variation: " + var_name + "\n";
-                    var_src += replace_macro(((first_var)? "vec2 result = $weight * ": "result += $weight * ") + vt.variation(var_name).source + ";", "weight", make_param_str(xmap["variations"][var_name])) + "\n";
-                    if (var_name == "pre_blur") xform_result = var_src + xform_result; else xform_result += var_src;
-                    first_var = false;
+                    if (!vd.source.empty()) var_src += replace_macro(vd.source, "weight", make_param_str(xmap["variations"][var_name], offset));
+                    if (var_name == "pre_blur") {
+                        affine += replace_macro(("v.xy += $weight *") + vd.result + ";", "weight", make_param_str(xmap["variations"][var_name], offset)) + "\n";
+                    }
+                    else {
+                        var_src += replace_macro(((first_var) ? "vec2 result = $weight * " : "result += $weight * ") + vd.result + ";", "weight", make_param_str(xmap["variations"][var_name], offset)) + "\n";
+                        xform_result += var_src;
+                        first_var = false;
+                    }
                 }
 
                 // resolve parameters
                 for (auto& [p_name, val] : x.var_param) {
-                    xform_result = replace_macro(xform_result, p_name, make_param_str(xmap["param"][p_name]));
+                    xform_result = replace_macro(xform_result, p_name, make_param_str(xmap["param"][p_name], offset));
                 }
 
                 // resolve precalc macros
@@ -124,7 +137,7 @@ auto& get_optimizers() {
                 }
 
                 // append affine
-                std::string affine = "\tv.xy = vec2(fma($c00, v.x, fma($c10, v.y, $c20)), fma($c01, v.x, fma($c11, v.y, $c21)));\n";
+                
                 xform_result = affine + xform_result;
                 resolve_affine(xform_result, xmap);
 
@@ -162,11 +175,14 @@ variation_table::variation_table(const std::string& def_path) {
 
     for (auto it = variations.begin(); it != variations.end(); it++) {
         auto name = it->first.as<std::string>();
-        auto src = it->second.as<YAML::Node>()["src"].as<std::string>();
+        auto src = it->second.as<YAML::Node>()["src"].as<std::string>("");
         default_replace_macros(src);
+        auto result = it->second.as<YAML::Node>()["result"].as<std::string>("");
+        default_replace_macros(result);
         auto param = it->second.as<YAML::Node>()["param"];
         auto& var = vars_[name];
         var.source = src;
+        var.result = result;
 
         for (auto it = param.begin(); it != param.end(); it++) {
             auto pname = it->first.as<std::string>();
@@ -188,9 +204,10 @@ std::string variation_table::compile_flame_xforms(const flame& f, const nlohmann
 {
     std::string compiled{};
 
-    std::string disp_func = std::string("vec4 dispatch(vec3 v){\n")
-        + "float ratio = float(gl_WorkGroupID.x) / float(gl_NumWorkGroups.x);\n"
-        + "float sum = 0.0;\n";
+    std::string disp_func = std::string("vec4 dispatch(vec3 v, int xform){\n");
+    std::string xid_func =
+        std::string("int get_xform_id(float ratio){\n")
+        .append("float sum = 0.0;");
 
     // concat sources
     for (int i = 0; i < f.xforms.size(); i++) {
@@ -201,7 +218,7 @@ std::string variation_table::compile_flame_xforms(const flame& f, const nlohmann
         bool inlined;
 
         for (auto& opt : get_optimizers()) {
-            if (opt.first(xform))
+            if (opt.first(xform, *this))
             {
                 std::tie(inlined, xform_src) = opt.second(xform, xform_map, *this);
                 break;
@@ -211,14 +228,16 @@ std::string variation_table::compile_flame_xforms(const flame& f, const nlohmann
         std::string dispatch_invoke = 
             fmt::format("return vec4({}, {} * {} + (1.0 - {}) * ((first_run)? randf(): v.z) , {});\n", (inlined)? xform_src: "result", make_param_str(xform_map["color"]),make_param_str(xform_map["color_speed"]), make_param_str(xform_map["color_speed"]), make_param_str(xform_map["opacity"]));
         if (!inlined) dispatch_invoke = xform_src + dispatch_invoke;
-
+        dispatch_invoke = fmt::format("atomicAdd(xform_invoke_count[{}], 1);\n", i) + dispatch_invoke;
         // append to the dispatch function
         if (i + 1 == f.xforms.size()) {
             disp_func += dispatch_invoke;
+            xid_func += "return " + std::to_string(i) + ";";
         }
         else {
-            disp_func += "sum += " + make_param_str(buf_map["xforms"][i]["weight"]) + ";\n";
-            disp_func += "if(sum >= ratio) {\n" + dispatch_invoke + "\n}\n";
+            disp_func += "if(xform ==" + std::to_string(i) + ") {\n" + dispatch_invoke + "\n}\n";
+            xid_func += "sum += " + make_param_str(xform_map["weight"]) + ";\n";
+            xid_func += "if(sum > ratio) return " + std::to_string(i) + ";\n";
         }
     }
 
@@ -229,7 +248,8 @@ std::string variation_table::compile_flame_xforms(const flame& f, const nlohmann
     */
 
     boost::replace_all(disp_func, "\n", "\n\t");
+    boost::replace_all(xid_func, "\n", "\n\t");
     disp_func += "\n}";
-
-    return compiled + disp_func;
+    xid_func += "\n}";
+    return compiled + xid_func + disp_func;
 }

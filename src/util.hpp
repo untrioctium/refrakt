@@ -70,3 +70,27 @@ private:
     using clock = std::chrono::high_resolution_clock;
     decltype(clock::now()) mark_;
 };
+
+namespace jsf32 {
+
+    using u4 = std::uint32_t;
+    struct ctx { u4 a; u4 b; u4 c; u4 d; };
+
+    #define rot32(x,k) (((x)<<(k))|((x)>>(32-(k))))
+    inline u4 ranval(ctx& x) {
+        u4 e = x.a - rot32(x.b, 27);
+        x.a = x.b ^ rot32(x.c, 17);
+        x.b = x.c + x.d;
+        x.c = x.d + e;
+        x.d = e + x.a;
+        return x.d;
+    }
+
+    inline void warmup_ctx(ctx& x, u4 seed) {
+        x.a = 0xf1ea5eed;
+        x.b = x.c = x.d = seed;
+
+        for (int i = 0; i < 20; i++) (void) ranval(x);
+    }
+
+}

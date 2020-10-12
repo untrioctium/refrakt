@@ -166,6 +166,7 @@
     <None Include="shaders\particle_vert.glsl" />
     <None Include="shaders\quad_frag.glsl" />
     <None Include="shaders\quad_vert.glsl" />
+    <None Include="shaders\templates\animate.tpl.glsl" />
     <None Include="shaders\tonemap.glsl" />
     <None Include="variations.yaml" />
   </ItemGroup>

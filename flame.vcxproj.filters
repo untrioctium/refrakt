@@ -25,6 +25,9 @@
     <Filter Include="Config\Shaders\Includes">
       <UniqueIdentifier>{821e42d2-0fd8-4ea1-950e-bc715f365319}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Config\Shaders\templates">
+      <UniqueIdentifier>{efd2e9c7-5381-454d-9ab8-2a92701666e3}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\main.cpp">
@@ -82,6 +85,9 @@
     </None>
     <None Include="shaders\include\math.glsl">
       <Filter>Config\Shaders\Includes</Filter>
+    </None>
+    <None Include="shaders\templates\animate.tpl.glsl">
+      <Filter>Config\Shaders\templates</Filter>
     </None>
   </ItemGroup>
   <ItemGroup>

@@ -41,7 +41,6 @@ public:
 	}
 
 private:
-
 	static inline const std::size_t item_size_ = sizeof(DataType);
 
 	GLuint name_;
@@ -87,8 +86,8 @@ public:
 		glGenTextures(1, &name_);
 		glBindTexture(GL_TEXTURE_2D, name_);
 		glTexImage2D(GL_TEXTURE_2D, 0, gl_format(), w, h, 0, GL_RGB, GL_UNSIGNED_BYTE, 0);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 		glGenerateMipmap(GL_TEXTURE_2D);
@@ -104,6 +103,15 @@ public:
 	auto format() const { return gl_format(); }
 
 	GLuint name() { return name_;  }
+
+	using pix_format_t = std::array<std::uint8_t, 4>;
+	std::vector<pix_format_t> get_pixels() {
+		auto ret = std::vector<pix_format_t>{};
+		ret.resize(width_ * height_);
+		auto total_bytes = ret.size() * sizeof(pix_format_t);
+		glGetTextureImage(name_, 0, GL_RGBA, GL_UNSIGNED_BYTE, total_bytes, (void*)ret.data());
+		return ret;
+	}
 
 private:
 
