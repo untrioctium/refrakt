@@ -34,6 +34,7 @@ struct flame {
     std::vector<flame_xform> xforms;
     std::array<std::array<float, 4>, 256> palette;
 
+    std::array<unsigned int, 2> size;
     std::array<float, 2> center;
     float scale;
     float rotate;
@@ -53,5 +54,6 @@ struct flame {
         for (auto& x : xforms) {
             func(idx++, x);
         }
+        if (final_xform) func(-1, final_xform.value());
     }
 };

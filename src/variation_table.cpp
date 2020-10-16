@@ -4,7 +4,7 @@
 #include <boost/algorithm/string/replace.hpp>
 #include <boost/algorithm/string.hpp>
 #include <fmt/core.h>
-
+#include <inja/inja.hpp>
 #include "util.hpp"
 #include "variation_table.hpp"
 
@@ -101,12 +101,15 @@ auto& get_optimizers() {
                     const auto& vd = vt.variation(var_name);
                     std::string var_src{};
                     var_src += "// variation: " + var_name + "\n";
-                    if (!vd.source.empty()) var_src += replace_macro(vd.source, "weight", make_param_str(xmap["variations"][var_name], offset));
-                    if (var_name == "pre_blur") {
-                        affine += replace_macro(("v.xy += $weight *") + vd.result + ";", "weight", make_param_str(xmap["variations"][var_name], offset)) + "\n";
+                    if (!vd.source.empty()) var_src += replace_macro(vd.source, "weight", make_param_str(xmap["variations"][var_name], offset)) + "\n";
+
+                    std::string weight_str = (vd.flags.contains("no_weight_mul")) ? "" : "$weight *";
+
+                    if (vd.flags.contains("pre_xform")) {
+                        affine += replace_macro(("v.xy += " + weight_str) + vd.result + ";", "weight", make_param_str(xmap["variations"][var_name], offset)) + "\n";
                     }
                     else {
-                        var_src += replace_macro(((first_var) ? "vec2 result = $weight * " : "result += $weight * ") + vd.result + ";", "weight", make_param_str(xmap["variations"][var_name], offset)) + "\n";
+                        var_src += replace_macro(((first_var) ? "vec2 result = " + weight_str : "result += " + weight_str) + vd.result + ";", "weight", make_param_str(xmap["variations"][var_name], offset)) + "\n";
                         xform_result += var_src;
                         first_var = false;
                     }
@@ -189,6 +192,10 @@ variation_table::variation_table(const std::string& def_path) {
             var.param.push_back(pname);
             param_owners_[pname] = name;
         }
+
+        auto flags = it->second.as<YAML::Node>()["flags"];
+        for (auto it = flags.begin(); it != flags.end(); it++) 
+            var.flags.insert(it->as<std::string>());
     }
 
     auto common = defs["common"];
@@ -204,15 +211,13 @@ std::string variation_table::compile_flame_xforms(const flame& f, const nlohmann
 {
     std::string compiled{};
 
-    std::string disp_func = std::string("vec4 dispatch(vec3 v, int xform){\n");
-    std::string xid_func =
-        std::string("int get_xform_id(float ratio){\n")
-        .append("float sum = 0.0;");
-
+    std::string disp_func = std::string("vec4 dispatch(vec3 v, int xform){\n").append("switch(xform){\n");
     // concat sources
-    for (int i = 0; i < f.xforms.size(); i++) {
-        const auto& xform = f.xforms.at(i);
-        const auto& xform_map = buf_map["xforms"][i];
+    for (int i = -1; i < (int) f.xforms.size(); i++) {
+        if (i == -1 && !f.final_xform) continue;
+
+        const auto& xform = (i == -1)? f.final_xform.value(): f.xforms.at(i);
+        const auto& xform_map = (i == -1)? buf_map["final_xform"]: buf_map["xforms"][i];
 
         std::string xform_src;
         bool inlined;
@@ -226,18 +231,15 @@ std::string variation_table::compile_flame_xforms(const flame& f, const nlohmann
         }
 
         std::string dispatch_invoke = 
-            fmt::format("return vec4({}, {} * {} + (1.0 - {}) * ((first_run)? randf(): v.z) , {});\n", (inlined)? xform_src: "result", make_param_str(xform_map["color"]),make_param_str(xform_map["color_speed"]), make_param_str(xform_map["color_speed"]), make_param_str(xform_map["opacity"]));
+            fmt::format("return vec4({}, mix(((first_run)? randf(): v.z), {}, {}), {});\n", (inlined)? xform_src: "result", make_param_str(xform_map["color"]),make_param_str(xform_map["color_speed"]), make_param_str(xform_map["opacity"]));
         if (!inlined) dispatch_invoke = xform_src + dispatch_invoke;
-        dispatch_invoke = fmt::format("atomicAdd(xform_invoke_count[{}], 1);\n", i) + dispatch_invoke;
+        if(i != -1) dispatch_invoke = fmt::format("atomicAdd(xform_invoke_count[{}], 1);\n", i) + dispatch_invoke;
         // append to the dispatch function
         if (i + 1 == f.xforms.size()) {
-            disp_func += dispatch_invoke;
-            xid_func += "return " + std::to_string(i) + ";";
+            disp_func += "default: {\n" + dispatch_invoke + "\n}}\n";
         }
         else {
-            disp_func += "if(xform ==" + std::to_string(i) + ") {\n" + dispatch_invoke + "\n}\n";
-            xid_func += "sum += " + make_param_str(xform_map["weight"]) + ";\n";
-            xid_func += "if(sum > ratio) return " + std::to_string(i) + ";\n";
+            disp_func += "case " + std::to_string(i) + ": {\n" + dispatch_invoke + "\n}\n";
         }
     }
 
@@ -247,9 +249,9 @@ std::string variation_table::compile_flame_xforms(const flame& f, const nlohmann
     else compiled += "vec2 apply_xform_final(vec2 v) { return v; }\n";
     */
 
+    std::string xid_func = inja::render(read_file("shaders/templates/xform_select.tpl.glsl"), buf_map);
+
     boost::replace_all(disp_func, "\n", "\n\t");
-    boost::replace_all(xid_func, "\n", "\n\t");
     disp_func += "\n}";
-    xid_func += "\n}";
     return compiled + xid_func + disp_func;
 }

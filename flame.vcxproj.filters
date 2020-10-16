@@ -89,6 +89,12 @@
     <None Include="shaders\templates\animate.tpl.glsl">
       <Filter>Config\Shaders\templates</Filter>
     </None>
+    <None Include="shaders\templates\xform_select.tpl.glsl">
+      <Filter>Config\Shaders\templates</Filter>
+    </None>
+    <None Include="shaders\templates\animate_xform.tpl.glsl">
+      <Filter>Config\Shaders\templates</Filter>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\variation_table.hpp">

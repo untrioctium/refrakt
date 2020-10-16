@@ -24,7 +24,9 @@
 #include <inja/inja.hpp>
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
+#define STB_IMAGE_RESIZE_IMPLEMENTATION
 #include <stb_image_write.h>
+#include <stb_image_resize.h>
 
 
 void glDebugOutput(GLenum source,GLenum type,GLuint id,GLenum severity,GLsizei length,const GLchar* message,const void* userParam);
@@ -48,6 +50,25 @@ flame_xform::affine_t rotate_affine(const flame_xform::affine_t& a, float deg) {
     return ret;
 }
 
+flame_xform::affine_t scale_affine(const flame_xform::affine_t& a, float scale) {
+    flame_xform::affine_t ret = a;
+
+    ret[0] = a[0] * scale;
+    ret[1] = a[1] * scale;
+    ret[2] = a[2] * scale;
+    ret[3] = a[3] * scale;
+
+    return ret;
+}
+
+flame_xform::affine_t translate_affine(const flame_xform::affine_t& a, const std::array<float, 2>& t) {
+    flame_xform::affine_t ret = a;
+
+    ret[4] = ret[0] * t[0] + ret[2] * t[1] + a[4];
+    ret[5] = ret[1] * t[0] + ret[3] * t[1] + a[5];
+    return ret;
+}
+
 flame load_flame(const std::string& path, const variation_table& vt) {
     pugi::xml_document doc;
     auto result = doc.load_file(path.c_str());
@@ -64,6 +85,7 @@ flame load_flame(const std::string& path, const variation_table& vt) {
     f.brightness = flame_node.attribute("brightness").as_float();
     f.gamma = flame_node.attribute("gamma").as_float();
     f.vibrancy = flame_node.attribute("vibrancy").as_float();;
+    f.size = parse_strings<unsigned int, 2>(std::string{ flame_node.attribute("size").value() }, [](auto& v) { return (unsigned int)std::stoi(v); });
 
     for (auto node : flame_node.children()) {
         std::string node_name = node.name();
@@ -84,11 +106,18 @@ flame load_flame(const std::string& path, const variation_table& vt) {
                 else { std::cout << "Unknown attribute " << name << " in flame " << path << std::endl; }
             }
 
-            for (auto motion : node.children("motion")) {
+            /*for (auto motion : node.children("motion")) {
                 motion_info m{};
                 m.freq = motion.attribute("motion_frequency").as_float();
                 m.function = motion.attribute("motion_function").as_string();
-            }
+
+                for (auto a : motion.attributes()) {
+                    if (a.name() != "motion_frequency" && a.name() != "motion_function") {
+                        m.freq = a.as_float();
+                        xform.motion[a.name()] = m;
+                    }
+                }
+            }*/
 
             if (node_name == "finalxform") { f.final_xform = xform;}
             else { f.xforms.push_back(xform); }
@@ -144,7 +173,7 @@ buffer_map_t make_shader_buffer_map(const flame& flame) {
     return buffer_map;
 }
 
-using fp_buffer_t = std::array<float, 256>;
+using fp_buffer_t = std::array<float, 1024>;
 void copy_flame_data_to_buffer(const flame& f, const buffer_map_t& buf_map, storage_buffer<float>& pbuf) {
 
     fp_buffer_t buf;
@@ -227,6 +256,9 @@ std::pair<gl_state, int> init_gl(int w, int h, bool fullscreen) {
     return { rs, 0 };
 }
 
+struct sim_package {
+};
+
 struct sim_info {
     std::size_t num_points;
     std::size_t num_temporal_samples;
@@ -262,18 +294,18 @@ int main(int, char**)
     sim_info si{};
 
     si.num_points = 1024 * 1024;
-    si.num_temporal_samples =1024;
+    si.num_temporal_samples = 1024;
 
-    si.block_width = 64;
+    si.block_width = 32;
     si.num_shuf_bufs = 1024;
-    si.warmup_passes = 32;
+    si.warmup_passes = 16;
     si.drawing_passes = 128;
 
     si.sample_random[0] = true;
     si.sample_random[1] = false;
 
     si.warmup_random[0] = true;
-    si.warmup_random[1] = false;
+    si.warmup_random[1] = true;
 
     si.draw_random[0] = true;
     si.draw_random[1] = true;
@@ -288,9 +320,15 @@ int main(int, char**)
     storage_buffer<float> samples{ make_sample_points(si.points_per_ts()) };
 
     auto variations = variation_table{ "variations.yaml" };
-    auto flame_def = load_flame("flames/electricsheep.247.27656.flam3", variations);
+    auto flame_def = load_flame("flames/electricsheep.247.23090.flam3", variations);
     auto buffer_map = make_shader_buffer_map(flame_def);
     auto shader_src = replace_macro(read_file("shaders/flame.glsl"), "varsource", variations.compile_flame_xforms(flame_def, buffer_map));
+    shader_src = replace_macro(shader_src, "block_width", std::to_string(si.block_width));
+    shader_src = replace_macro(shader_src, "final_xform_call", (flame_def.final_xform) ? "result = dispatch(result.xyz, -1) * vec4(1.0, 1.0, 1.0, result.w);" : "");
+
+
+
+
     auto animate_src = inja::render(read_file("shaders/templates/animate.tpl.glsl"), buffer_map);
 
     std::cout << "BUFFER MAP\n" << std::endl;
@@ -308,7 +346,7 @@ int main(int, char**)
     auto density_cs = compute_shader(read_file("shaders/density.glsl"));
     auto animate_cs = compute_shader(animate_src);
 
-
+    auto print_buffer = [](auto& buf, auto& name) { std::cout << name << ": " << buf.name() << std::endl; };
 
     storage_buffer<std::array<float, 4>> pos[2] = { {si.num_points},{si.num_points} };
     GLuint vao;
@@ -316,10 +354,12 @@ int main(int, char**)
     glGenVertexArrays(1, &vao);
     glBindVertexArray(vao);
 
-    storage_buffer<float> fp{ 256 };
+    storage_buffer<float> fp{ 1024 };
+    print_buffer(fp, "uninflated params");
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 5, fp.name());
 
     storage_buffer<std::array<float, 4>> palette{ 256, flame_def.palette.data() };
+    print_buffer(palette, "palette");
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 6, palette.name());
 
     auto xform_atomic_init = std::vector<unsigned int>(flame_def.xforms.size(), 0);
@@ -330,7 +370,7 @@ int main(int, char**)
     storage_buffer<unsigned int> flame_atomic_counters(flame_stats_init);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 10, flame_atomic_counters.name());
 
-    const std::size_t target_dims[2] = { 7680, 4320 };
+    const std::size_t target_dims[2] = { 1920, 1080 };
 
     storage_buffer<std::array<float,4>> bins{ target_dims[0] * target_dims[1] };
     glClearNamedBufferData(bins.name(), GL_RGBA32F, GL_RGBA, GL_FLOAT, nullptr);
@@ -373,9 +413,12 @@ int main(int, char**)
 
     auto buf_name = rand_state_group.cached_buffers().at(0);
     auto rs_buf = rand_state_group.read_buffer<jsf32::ctx>(buf_name);
+
+
+
     rand_states.update_all(rs_buf.data());
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 11, rand_states.name());
-
+    print_buffer(rand_states, "rand");
     const int in_buf_pos = 0;
     const int out_buf_pos = 1;
     const int in_buf_col = 2;
@@ -393,6 +436,8 @@ int main(int, char**)
     float scale_constant = 4;
 
     moving_average<16> fps;
+    moving_average<100> pps;
+    float pps_final = 0.0;
 
     bool animate = false;
     bool do_step = false;
@@ -400,9 +445,13 @@ int main(int, char**)
     float tss_width = 1.2 / 60.0;
 
     long long accumulated = 0;
-    long long needed_quality = target_dims[0] * target_dims[1] * 2000;
+    int needed_quality = 2000;
 
-    flame_def.scale *= target_dims[1] / 592.0;
+    bool advance_frame = false;
+    int rendered_frames = 0;
+    int total_frames_needed = 300;
+
+    flame_def.scale *= float(target_dims[1]) / float(flame_def.size[1]);
 
     std::vector<unsigned long long> running_xform_counts( flame_def.xforms.size(), 0 );
     std::vector<unsigned long long> current_xform_counts(flame_def.xforms.size(), 0 );
@@ -439,6 +488,7 @@ int main(int, char**)
         needs_clear |= ImGui::InputInt("Drawing Passes", &si.drawing_passes, 2, 2);
         needs_clear |= ImGui::Checkbox("Use random xform selection", &si.use_random_xform_selection);
         needs_clear |= ImGui::DragFloat("Temporal Sample Width", &tss_width, .01, 0, .25);
+        needs_clear |= ImGui::InputInt("Quality Target", (int*) &needed_quality, 10, 100);
         do_step = ImGui::Button("Advance 1/60s");
         ImGui::End();
 
@@ -493,7 +543,7 @@ int main(int, char**)
         float rotation = DEGREES_PER_SECOND * dt;
 
         //Do rotation
-        if(animate)
+        if(animate || advance_frame)
             for (auto& x : flame_def.xforms) {
                 if (x.animate) x.affine = rotate_affine(x.affine, rotation);
                 needs_clear = true;
@@ -596,18 +646,22 @@ int main(int, char**)
             flame_def.center[0] - float(target_dims[0]) / flame_def.scale / 2.0,
             flame_def.center[1] - float(target_dims[1]) / flame_def.scale / 2.0);
 
+        flame_xform::affine_t base{ 1, 0, 0, 1, 0, 0 };
+
+        base = translate_affine(base, { target_dims[0] / 2.0f, target_dims[1] / 2.0f });
+        base = scale_affine(base, flame_def.scale);
+        base = rotate_affine(base, flame_def.rotate);
+        base = translate_affine(base, { -flame_def.center[0], -flame_def.center[1] });
+
+        cs.set_uniform<std::array<float, 6>>("ss_affine", base);
         cs.set_uniform<bool>("random_read", si.draw_random[0]);
         cs.set_uniform<bool>("random_write", si.draw_random[1]);
         cs.set_uniform<bool>("do_draw", true);
-        cs.set_uniform<float>("scale", flame_def.scale);
-        cs.set_uniform<float>("cos_rot", cos(0.01745329251f * flame_def.rotate));
-        cs.set_uniform<float>("sin_rot", sin(0.01745329251f * flame_def.rotate));
-        cs.set_uniform<glm::vec2>("win_min", win_min);
         cs.set_uniform<glm::uvec2>("bin_dims", glm::uvec2{ target_dims[0], target_dims[1] });
 
         perf_timer.reset();
         // drawing passes
-        if (accumulated < needed_quality) {
+        if (accumulated < needed_quality * target_dims[0] * target_dims[1]) {
             for (int i = 0; i < si.drawing_passes; i++) {
                 {
                     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, in_buf_pos, pos[i & 1].name());
@@ -644,6 +698,10 @@ int main(int, char**)
                 glUseProgram(cs.name());*/
             }
             glFinish();
+            float drawn_parts = float(si.drawing_passes) * si.num_points;
+            pps_final = pps.add(drawn_parts / dt);
+            
+
         }
         perf_timer_results["draw calc"] = perf_timer.time<timer::ns>();
         fb.unbind();
@@ -705,7 +763,7 @@ int main(int, char**)
             SHOW_PERF_TIMER("tonemap");
         }ImGui::End();
 
-        float drawn_parts = float(si.drawing_passes) * si.num_points;
+        
 
         auto total_binned = flame_atomic_counters.get_one(0);
         accumulated += total_binned;
@@ -720,11 +778,11 @@ int main(int, char**)
         ImGui::Text("FPS Avg: %f", 1.0 / fps_avg);
         ImGui::Text("Mem Avail: %.3fGB", available_mem / (1024.0 * 1024.0));
         ImGui::Text("Mem Used: %.3fGB", (total_mem_kb - available_mem)/(1024.0 * 1024.0));
-        ImGui::Text("Parts per second: %.1fM", drawn_parts / fps_avg / 1'000'000.0f);
-        ImGui::Text("Parts per frame: %.1fM", drawn_parts / 1'000'000.0f);
+        ImGui::Text("Parts per second: %.1fM", pps_final / 1'000'000.0f);
+        ImGui::Text("Parts per frame: %.1fM", float(si.drawing_passes)* si.num_points / 1'000'000.0f);
         ImGui::Text("Binned this frame: %.1fM", total_binned / 1'000'000.0f);
         ImGui::Text("Total binned this image: %.3fB", accumulated / 1'000'000'000.0f );
-        ImGui::Text("Image Quality: %.2f%%", float(accumulated) / float(needed_quality) * 100.0);
+        ImGui::Text("Image Quality: %.2f%%", float(accumulated) / float(needed_quality * target_dims[0] * target_dims[1]) * 100.0);
         if (ImGui::Button("Screenshot")) {
             auto pixels = render_targets[1].get_pixels();
             stbi_write_png("screenshot.png", render_targets[1].width(), render_targets[1].height(), 4, pixels.data(), 0);

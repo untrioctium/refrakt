@@ -16,22 +16,32 @@ float floatConstruct( uint m ) {
     return f - 1.0;                        // Range [0:1]
 }
 
+uvec4 local_random_state;
+
+void load_random_state() {
+    local_random_state = rs[gl_WorkGroupID.y * gl_NumWorkGroups.x * gl_WorkGroupSize.x + gl_GlobalInvocationID.x];
+}
+
+void save_random_state() {
+    rs[gl_WorkGroupID.y * gl_NumWorkGroups.x * gl_WorkGroupSize.x + gl_GlobalInvocationID.x] = local_random_state;
+}
+
 #define rot32(x,k) (((x)<<(k))|((x)>>(32-(k))))
 uint ranval() {
-    uint off = gl_WorkGroupID.y * gl_NumWorkGroups.x * gl_WorkGroupSize.x + gl_GlobalInvocationID.x;
-    uvec4 x = rs[off];
-
-    uint e = x.x - rot32(x.y, 27);
-    x.x = x.y ^ rot32(x.z, 17);
-    x.y = x.z + x.w;
-    x.z = x.w + e;
-    x.w = e + x.x;
-    rs[off] = x;
-    return x.x;
+    uint e = local_random_state.x - rot32(local_random_state.y, 27);
+    local_random_state.x = local_random_state.y ^ rot32(local_random_state.z, 17);
+    local_random_state.y = local_random_state.z + local_random_state.w;
+    local_random_state.z = local_random_state.w + e;
+    local_random_state.w = e + local_random_state.x;
+    return local_random_state.x;
 }
 
 float randf() {
-    return floatConstruct(ranval());
+    return clamp(float(ranval())/4294967295.0f, 0.0, 1.0);
+}
+
+double randd() {
+    return clamp(float(ranval())/4294967295.0lf, 0.0, 1.0);
 }
 
 bool randbit() {

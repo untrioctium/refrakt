@@ -7,7 +7,13 @@ common:
   cosa: $y / $r
   sinr: sin($r)
   cosr: cos($r)
-  lr: float(gl_LocalInvocationID.x)/float(gl_WorkGroupSize.x)
+
+  # [0,1] float depending on this thread's position in the
+  # work group. essentially random from the perspective of
+  # the particles given that the buffers are shuffled, but
+  # do not expect any more than a precision of 1/block_size.
+  # useful for making 50/50 splits without branching (see julia)
+  lr: float(gl_LocalInvocationID.x)/float(gl_WorkGroupSize.x - 1)
 
 variations:
   linear:
@@ -21,12 +27,12 @@ variations:
 
   swirl:
     src: |-
-      float c1 = cos($rsq);
-      float c2 = sin($rsq);
-    result: vec2(c1 * $x - c2 * $y, c2 * $x - c1 * $y)
+      float c1 = sin($rsq);
+      float c2 = cos($rsq);
+    result: vec2(c1 * $x - c2 * $y, c2 * $x + c1 * $y)
 
   horseshoe:
-    result: ($r + EPS) * vec2(($x + $y) * ($x - $y), 2.0 * $x * $y)
+    result: vec2(($x + $y) * ($x - $y), 2.0 * $x * $y) / ($r + EPS)
 
   polar:
     result: vec2($a / PI, $r - 1.0)
@@ -58,7 +64,10 @@ variations:
     result: vec2(m0 + m1, m0 - m1)
 
   julia:
-    result: "sqrt($r) * sincos(0.5 * $a + (($lr > 0.5)? PI: 0)).yx"
+    # round($lr) * PI means that half of the threads in
+    # this block will pick the first branch (0) and the other
+    # half the second (PI). quicker than a if, ternary, or randf
+    result: "sqrt($r) * sincos(0.5 * $a + round($lr) * PI).yx"
 
   bent:
     result: |-
@@ -88,7 +97,7 @@ variations:
     result: exp($x - 1) * sincos(PI * $y).yx
 
   power:
-    result: pow($r, $sina) * vec2($sina, $cosa)
+    result: pow($r, $sina) * vec2($cosa, $sina)
 
   cosine:
     result: vec2(cos(PI * $x) * cosh($y), -sin(PI * $x) * sinh($y))
@@ -96,14 +105,14 @@ variations:
   rings:
     src: |-
       float rings_dx = $c20 * $c20 + EPS;
-    result: (mod($r + rings_dx, 2.0 * rings_dx) - rings_dx + $r * (1.0 - rings_dx)) * vec2($sina, $cosa)
+    result: (mod2($r + rings_dx, 2.0 * rings_dx) - rings_dx + $r * (1.0 - rings_dx)) * vec2($cosa, $sina)
 
   fan:
     src: |-
-      float fan_dx = PI * $c20 * $c20;
+      float fan_dx = PI * ($c20 * $c20 + EPS);
       float fan_dx2 = fan_dx * 0.5;
       float fan_a = $a;
-      fan_a += fmod(fan_a+$c21,fan_dx) > fan_dx2) ? -fan_dx2 : fan_dx2;
+      fan_a += (mod2(fan_a+$c21,fan_dx) > fan_dx2) ? -fan_dx2 : fan_dx2;
     result: $r * sincos(fan_a).yx
 
   blob:
@@ -131,7 +140,7 @@ variations:
       fan2_y: {}
     src: |-
       float fan2_dx = PI * ($fan2_x * $fan2_x + EPS);
-      float fan2_dx2 = 0.5 * dx;
+      float fan2_dx2 = 0.5 * fan2_dx;
       float fan2_a = $a;
       float fan2_t = $a + $fan2_y - fan2_dx * floor(($a + $fan2_y)/fan2_dx);
       if(fan2_t > fan2_dx2) 
@@ -145,7 +154,7 @@ variations:
     src: |-
       float rings2_dx = $rings2_val * $rings2_val + EPS;
       float rings2_r = $r;
-      rings2_r += -2.0 * rings2_dx * floor((rings2_r * rings2_dx)/(2.0 * rings2_dx)) + rings2_r * (1.0 - rings2_dx);
+      rings2_r += -2.0 * rings2_dx * float(int((rings2_r + rings2_dx)/(2.0 * rings2_dx))) + rings2_r * (1.0 - rings2_dx);
     result: rings2_r * vec2($sina, $cosa)
 
   eyefish:
@@ -163,29 +172,29 @@ variations:
       / ($perspective_dist - $y * sin($perspective_angle))
 
   noise:
-    src: $result += $weight * $v * randf() * sincos(randf() * 2.0 * PI).yx
+    result: $v * randf() * sincos(randf() * 2.0 * PI).yx
 
   julian:
     param:
       julian_power: {}
       julian_dist: {}
-    result: |-
-      pow($rsq, $julian_dist / $julian_power / 2.0) 
-      * sincos(($phi + 2.0 * PI * trunc(abs($julian_power) * randf())) / $julian_power).yx;
+    result: pow($rsq, $julian_dist / $julian_power / 2.0) * sincos(($phi + 2.0 * PI * trunc(abs($julian_power) * randf())) / $julian_power).yx
 
   juliascope:
     param:
       juliascope_power: {}
       juliascope_dist: {}
     src: |-
-      float juliascope_rn = abs($juliascope_power);
-      float juliascope_cn = $juliascope_dist / $juliascope_power / 2.0;
-      float t_rnd = trunc(juliascope_rn * $lr);
-      float tmpr = (2.0 * PI * t_rnd + ((randf() > 0.5)? 1.0: -1.0) * $phi) / $juliascope_power;
-    result: pow($rsq, juliascope_cn) * sincos(tmpr).yx
+      int t_rnd = int(trunc(abs($juliascope_power) * randf()));
+    result: |-
+      pow($rsq, $juliascope_dist / $juliascope_power / 2.0)
+      * sincos(
+            (2 * PI * float(t_rnd) + (((t_rnd & 1) == 0)? 1: -1) * $phi)
+            / $juliascope_power
+        ).yx
 
   blur:
-    src: $result += $weight * randf() * sincos(randf() * 2.0 * PI).yx;
+    result: randf() * sincos(randf() * 2.0 * PI).yx
 
   gaussian_blur:
     result: (randf() + randf() + randf() + randf() - 2.0) * sincos(randf() * 2.0 * PI).yx
@@ -193,21 +202,92 @@ variations:
   radial_blur:
     param:
       radial_blur_angle: {}
+    flags: [no_weight_mul]
     src: |-
       vec2 radial_blur_spinzoom = sincos($radial_blur_angle * PI / 2.0);
       float radial_blur_rndg = $weight * (randf() + randf() + randf() + randf() - 2.0);
       vec2 tmpa = sincos($phi + radial_blur_spinzoom.x * radial_blur_rndg);
       float radial_blur_rz = radial_blur_spinzoom.y * radial_blur_rndg - 1.0;
-      $result += vec2($r * tmpa.y + radial_blur_rz * $x, $r * tmpa.x + radial_blur_rz * $y)
+    result: "vec2($r * tmpa.y + radial_blur_rz * $x, $r * tmpa.x + radial_blur_rz * $y)"
 
   pie:
     param:
       pie_slices: {}
       pie_rotation: {}
       pie_thickness: {}
+    src: randf() * sincos($pie_rotation + 2.0 * PI * (trunc(randf() * $pie_slices + 0.5) + randf() * $pie_thickness)/$pie_slices)
+
+  ngon:
+    param:
+      ngon_power: {}
+      ngon_sides: {}
+      ngon_corners: {}
+      ngon_circle: {}
     src: |-
-      $result += $weight * randf() * sincos($pie_rotation + 2.0 * PI * (floor(randf() * $pie_slices + 0.5) + randf() * $pie_thickness)/$pie_slices);
-   
+      float ngon_r_factor = pow($rsq, $ngon_power * 0.5);
+      float ngon_b = 2.0 * PI / ($ngon_sides + EPS);
+      float ngon_phi = $phi - (ngon_b * floor($a/ngon_b));
+      if(ngon_phi > ngon_b * 0.5) ngon_phi -= ngon_b;
+    result: ($ngon_corners * (1.0 / (cos(ngon_phi) + EPS) - 1.0) + $ngon_circle)/(ngon_r_factor + EPS) * ($v)
+
+  curl:
+    param:
+      curl_c1: {}
+      curl_c2: {}
+    src: |-
+      float curl_re = 1.0 + $curl_c1 * $x + $curl_c2 * ($x * $x - $y * $y);
+      float curl_im = $curl_c1 * $y + 2.0 * $curl_c2 * $x * $y;
+    result: vec2($x * curl_re + $y * curl_im, $y * curl_re - $x * curl_im) / (curl_re * curl_re + curl_im * curl_im)
+
+  rectangles:
+    param:
+      rectangles_x: {}
+      rectangles_y: {}
+    result: |-
+      vec2(
+        ($rectangles_x == 0)? $x: ((2 * floor($x/$rectangles_x) + 1.0) * $rectangles_x - $x),
+        ($rectangles_y == 0)? $y: ((2 * floor($y/$rectangles_y) + 1.0) * $rectangles_y - $y)
+      )
+  
+  arch:
+    src: |-
+      vec2 arch_sc = sincos(randf() * $weight * PI);
+    result: vec2(arch_sc.x, arch_sc.x * arch_sc.x / arch_sc.y)
+
+  tangent:
+    result: vec2(sin($x)/cos($y), tan($y))
+
+  square:
+    result: vec2(randf() - 0.5, randf() - 0.5)
+
+  rays:
+    src: |-
+      float rays_ang = $weight * randf() * PI;
+      float rays_r = $weight / ($rsq + EPS);
+    result: tan(rays_ang) * rays_r * vec2(cos($x), sin($y))
+
+  blade:
+    src: |-
+      vec2 blade_sc = sincos(randf() * $weight * $r);
+    result: vec2($x * (blade_sc.y + blade_sc.x), $x * (blade_sc.y - blade_sc.x))
+
+  secant2:
+    src: |-
+      float secant2_cr = cos($weight * $r);
+      float secant2_icr = 1.0/secant2_cr;
+    result: "vec2($x, secant2_icr + ((secant2_cr < 0)? 1: -1))"
+
+  twintrian:
+    src: |-
+      vec2 twint_sc = sincos(randf() * $weight * $r);
+      float twint_diff = log10(twint_sc.x * twint_sc.x) + twint_sc.y;
+      if(badval(diff)) diff = -30.0;
+    result: vec2( $x * twint_diff, $x * (twint_diff - twint_sc.x * PI))
+
+  cross:
+    src: |-
+      float cross_s = $x * $x - $y * $y;
+    result: $v * sqrt(1.0/(cross_s * cross_s + EPS))
   # End normal variation work
 
   pre_blur:
@@ -224,17 +304,23 @@ variations:
       vec2(
         $x + $waves2_scalex * sin($y * $waves2_freqx),
         $y + $waves2_scaley * sin($x * $waves2_freqy)
-      );
+      )
 
   cylinder:
     result: vec2(sin($x), $y)
 
-  rectangles:
+  super_shape:
     param:
-      rectangles_x: {}
-      rectangles_y: {}
-    result: |-
-      vec2(
-        ($rectangles_x == 0)? $x: ((2 * floor($x/$rectangles_x) + 1.0) * $rectangles_x - $x),
-        ($rectangles_y == 0)? $y: ((2 * floor($y/$rectangles_y) + 1.0) * $rectangles_y - $y)
-      )
+      super_shape_n1: {}
+      super_shape_n2: {}
+      super_shape_n3: {}
+      super_shape_m: {}
+      super_shape_holes: {}
+      super_shape_rnd: {}
+    src: |-
+      vec2 super_shape_sc = sincos($super_shape_m * 0.25 * $phi + PI * 0.25);
+    result: $v * (mix($r, randf(), $super_shape_rnd) - $super_shape_holes) * pow(pow(abs(super_shape_sc.y), $super_shape_n2)+pow(abs(super_shape_sc.x), $super_shape_n3), -1.0 / $super_shape_n1) / $r
+
+
+
+

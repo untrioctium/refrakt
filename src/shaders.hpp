@@ -32,6 +32,8 @@ public:
         // mats
         else if constexpr (std::is_same_v<T, glm::mat4>) glUniformMatrix4fv(location, 1, 0, glm::value_ptr(value));
 
+        // lol
+        else if constexpr (std::is_same_v < T, std::array<float, 6>>) glUniform1fv(location, 6, value.data());
     }
 
     GLuint name() { return shader_; }

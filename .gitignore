@@ -6,3 +6,4 @@ imgui.ini
 x64/
 .vs/
 cache/
+screenshot*.png

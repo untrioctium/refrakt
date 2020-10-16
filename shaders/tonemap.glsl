@@ -31,7 +31,7 @@ void main()
 	//color.g = clamp(mix(pow(color.g, inv_gamma), gamma_factor * color.g, vibrancy), 0.0, 1.0);
 	//color.b = clamp(mix(pow(color.b, inv_gamma), gamma_factor * color.b, vibrancy), 0.0, 1.0);
 	color.rgb = clamp(mix(pow(color.rgb, inv_gamma_p), gamma_factor * color.rgb, vibrancy), 0.0, 1.0);
-	color.a = 1.0;//clamp(color.a, 0.0, 1.0);
+	color.a = clamp(color.a, 0.0, 1.0);
 
 	imageStore(image, pos, color);
 }

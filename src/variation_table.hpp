@@ -13,6 +13,7 @@ struct variation_definition {
     std::string source;
     std::string result;
     std::vector<std::string> param;
+    std::set<std::string> flags;
 
 };
 
