@@ -9,7 +9,8 @@ public:
 
 	storage_buffer(std::size_t buf_size, const DataType* src = nullptr) : size_(buf_size) {
 		glCreateBuffers(1, &name_);
-		glNamedBufferData(name_, item_size_ * buf_size, src, GL_DYNAMIC_COPY);
+		//glNamedBufferData(name_, item_size_ * buf_size, src, GL_DYNAMIC_COPY);
+		glNamedBufferStorage(name_, item_size_ * buf_size, src, GL_DYNAMIC_STORAGE_BIT);
 
 	}
 
@@ -38,6 +39,10 @@ public:
 		DataType result;
 		glGetNamedBufferSubData(name_, idx * item_size_, item_size_,(void*) &result);
 		return result;
+	}
+
+	void zero_out() {
+		glClearNamedBufferData(name_, GL_R8, GL_RED, GL_UNSIGNED_BYTE, nullptr);
 	}
 
 private:

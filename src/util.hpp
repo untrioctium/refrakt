@@ -32,17 +32,20 @@ public:
 
     template<typename T>
     float add(T v) {
-        head++;
+        val = (1.0 - 1.0 / float(Samples)) * val + 1.0 / float(Samples) * static_cast<float>(v);
+        return val;
+        /*head++;
         if (head == Samples) head = 0;
         samples_[head] = static_cast<float>(v);
 
         float accum = 0.0;
         for (auto& v : samples_) accum += v;
-        return accum / float(Samples);
+        return accum / float(Samples);*/
     }
 
 private:
     std::size_t head = 0;
+    float val = 0;
     std::array<float, Samples> samples_ = { 0.0 };
 };
 

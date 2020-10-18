@@ -157,7 +157,8 @@
     <ClCompile Include="src\variation_table.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="shaders\density.glsl" />
+    <None Include="shaders\density_frag.glsl" />
+    <None Include="shaders\density_vert.glsl" />
     <None Include="shaders\flame.glsl" />
     <None Include="shaders\include\buffers.glsl" />
     <None Include="shaders\include\math.glsl" />
@@ -167,7 +168,6 @@
     <None Include="shaders\quad_frag.glsl" />
     <None Include="shaders\quad_vert.glsl" />
     <None Include="shaders\templates\animate.tpl.glsl" />
-    <None Include="shaders\templates\animate_xform.tpl.glsl" />
     <None Include="shaders\templates\xform_select.tpl.glsl" />
     <None Include="shaders\tonemap.glsl" />
     <None Include="variations.yaml" />
@@ -176,6 +176,7 @@
     <ClInclude Include="src\buffer_cache.hpp" />
     <ClInclude Include="src\buffer_objects.hpp" />
     <ClInclude Include="src\flame.hpp" />
+    <ClInclude Include="src\histogram_plotter.hpp" />
     <ClInclude Include="src\shaders.hpp" />
     <ClInclude Include="src\util.hpp" />
     <ClInclude Include="src\variation_table.hpp" />

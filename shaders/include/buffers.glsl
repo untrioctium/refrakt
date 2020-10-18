@@ -8,6 +8,11 @@ layout(std430, binding = 1) buffer particle_buffer_out
 	vec4 pos_out[];
 };
 
+layout(std430, binding = 12) buffer particle_buffer_draw
+{
+	vec4 pos_draw[];
+};
+
 layout(std430, binding = 4) buffer shuffle_buffer
 {
 	uint shuf_buf[];

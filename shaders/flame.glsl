@@ -64,14 +64,15 @@ void main() {
 
 	if(do_draw) {
 		$final_xform_call
-
+		//result.xy = vec2(fma(ss_affine[0], result.x, fma(ss_affine[2], result.y, ss_affine[4])), fma(ss_affine[1], result.x, fma(ss_affine[3], result.y, ss_affine[5])));
+		//pos_draw[gl_WorkGroupID.y * gl_WorkGroupSize.x * gl_NumWorkGroups.x + gl_GlobalInvocationID.x] = result;
 		vec2 pos = vec2(fma(ss_affine[0], result.x, fma(ss_affine[2], result.y, ss_affine[4])), fma(ss_affine[1], result.x, fma(ss_affine[3], result.y, ss_affine[5])));
 		ivec2 coords = ivec2(floor(pos));
 
 		if( coords.x >= 0 && coords.y >= 0 && coords.x < bin_dims.x && coords.y < bin_dims.y && result.w > 0 ) {
 			// 100% not thread safe in any manner
 			// it just werks though?
-			bins[(bin_dims.y - coords.y) * bin_dims.x + coords.x] += vec4(palette[min(255, uint(ceil(result.z * 255.0)))].rgb, result.w);
+			bins[coords.y * bin_dims.x + coords.x] += vec4(palette[min(255, uint(ceil(result.z * 255.0)))].rgb, result.w);
 			atomicAdd(flame_atomic_counters[0], 1);
 		}
 	}

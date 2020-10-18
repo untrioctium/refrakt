@@ -238,7 +238,7 @@ std::pair<gl_state, int> init_gl(int w, int h, bool fullscreen) {
     ImGui::CreateContext();
 
     ImGuiIO& io = ImGui::GetIO();
-    io.Fonts->AddFontFromFileTTF("fonts/JetBrainsMono-Regular.ttf", 15);
+    io.Fonts->AddFontFromFileTTF("fonts/JetBrainsMono-Regular.ttf", 13);
     //io.Fonts->GetTexDataAsRGBA32();
 
     // Setup Dear ImGui style
@@ -320,7 +320,7 @@ int main(int, char**)
     storage_buffer<float> samples{ make_sample_points(si.points_per_ts()) };
 
     auto variations = variation_table{ "variations.yaml" };
-    auto flame_def = load_flame("flames/electricsheep.247.23090.flam3", variations);
+    auto flame_def = load_flame("flames/electricsheep.247.28044.flam3", variations);
     auto buffer_map = make_shader_buffer_map(flame_def);
     auto shader_src = replace_macro(read_file("shaders/flame.glsl"), "varsource", variations.compile_flame_xforms(flame_def, buffer_map));
     shader_src = replace_macro(shader_src, "block_width", std::to_string(si.block_width));
@@ -343,12 +343,13 @@ int main(int, char**)
     auto cs = compute_shader(shader_src);
     auto tonemap_cs = compute_shader(read_file("shaders/tonemap.glsl"));
     auto quad_vf = vf_shader(read_file("shaders/quad_vert.glsl"), read_file("shaders/quad_frag.glsl"));
-    auto density_cs = compute_shader(read_file("shaders/density.glsl"));
+    auto density_vf = vf_shader(read_file("shaders/density_vert.glsl"), read_file("shaders/density_frag.glsl"));
     auto animate_cs = compute_shader(animate_src);
+    auto particle_vf = vf_shader(read_file("shaders/particle_vert.glsl"), read_file("shaders/particle_frag.glsl"));
 
     auto print_buffer = [](auto& buf, auto& name) { std::cout << name << ": " << buf.name() << std::endl; };
 
-    storage_buffer<std::array<float, 4>> pos[2] = { {si.num_points},{si.num_points} };
+    storage_buffer<std::array<float, 4>> pos[4] = { {si.num_points},{si.num_points},{si.num_points},{si.num_points} };
     GLuint vao;
   
     glGenVertexArrays(1, &vao);
@@ -435,8 +436,8 @@ int main(int, char**)
     bool needs_clear = true;
     float scale_constant = 4;
 
-    moving_average<16> fps;
-    moving_average<100> pps;
+    moving_average<10> fps;
+    moving_average<10> pps;
     float pps_final = 0.0;
 
     bool animate = false;
@@ -558,7 +559,7 @@ int main(int, char**)
         }
 
         if (needs_clear) {
-            glClearNamedBufferData(bins.name(), GL_RGBA32F, GL_RGBA, GL_FLOAT, nullptr);
+            //glClearNamedBufferData(bins.name(), GL_RGBA32F, GL_RGBA, GL_FLOAT, nullptr);
             accumulated = 0;
             for (auto& c : running_xform_counts) c = 0;
         }
@@ -571,9 +572,11 @@ int main(int, char**)
         timer perf_timer;
         timer perf_timer_total;
         perf_timer.reset();
-        copy_flame_data_to_buffer(flame_def, buffer_map, fp);
-        glMemoryBarrier(GL_ALL_BARRIER_BITS);
-        glFinish();
+        if (needs_clear) {
+            copy_flame_data_to_buffer(flame_def, buffer_map, fp);
+            glMemoryBarrier(GL_ALL_BARRIER_BITS);
+            glFinish();
+        }
         perf_timer_results["copy data"] = perf_timer.time<timer::ns>();
 
         glUseProgram(cs.name());
@@ -625,19 +628,21 @@ int main(int, char**)
                 glMemoryBarrier(GL_ALL_BARRIER_BITS);
                 glFinish();
             }
-            needs_clear = false;
         }
         perf_timer_results["warm up"] = perf_timer.time<timer::ns>();
 
         fb.bind();
         frame_buffer::attach(render_targets[0].name());
-        if (clear_parts) {
-            glClearColor(0, 0, 0, 0);
-            glClear(GL_COLOR_BUFFER_BIT);
-            clear_parts = false;
+        glClearColor(0, 0, 0, 0);
+        glClear(GL_COLOR_BUFFER_BIT);
+        glEnable(GL_PROGRAM_POINT_SIZE);
+        if (needs_clear) {
+            bins.zero_out();
+            needs_clear = false;
         }
         glEnable(GL_BLEND);
         glBlendFunc(GL_ONE, GL_ONE);
+        glViewport(0, 0, target_dims[0], target_dims[1]);
 
         //cs.set_uniform<bool>("random_read", true);
         //cs.set_uniform<bool>("random_write", false);
@@ -653,11 +658,23 @@ int main(int, char**)
         base = rotate_affine(base, flame_def.rotate);
         base = translate_affine(base, { -flame_def.center[0], -flame_def.center[1] });
 
-        cs.set_uniform<std::array<float, 6>>("ss_affine", base);
+        particle_vf.bind();
+
+        float half_width = float(target_dims[0]) / flame_def.scale / 2.0;
+        float half_height = half_width * float(target_dims[1]) / float(target_dims[0]);
+
+        auto proj = glm::ortho(0.0f, float(target_dims[0]), float(target_dims[1]), 0.0f, -1.0f, 1.0f);
+
+        particle_vf.set_uniform<glm::mat4>("projection", proj);
+
+        particle_vf.set_uniform<std::array<float, 6>>("ss_affine", base);
+
+        cs.bind();
         cs.set_uniform<bool>("random_read", si.draw_random[0]);
         cs.set_uniform<bool>("random_write", si.draw_random[1]);
         cs.set_uniform<bool>("do_draw", true);
-        cs.set_uniform<glm::uvec2>("bin_dims", glm::uvec2{ target_dims[0], target_dims[1] });
+        cs.set_uniform<glm::uvec2>("bin_dims", glm::uvec2(target_dims[0], target_dims[1]));
+        cs.set_uniform<std::array<float, 6>>("ss_affine", base);
 
         perf_timer.reset();
         // drawing passes
@@ -666,36 +683,26 @@ int main(int, char**)
                 {
                     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, in_buf_pos, pos[i & 1].name());
                     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, out_buf_pos, pos[!(i & 1)].name());
+                    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 12, pos[2 + (i & 1)].name());
                     cs.set_uniform<float>("rand_seed", dist(generator));
+
                     if (si.draw_random[0]) cs.set_uniform<unsigned int>("shuf_buf_idx_in", *(shuf++));
                     if (si.draw_random[1]) cs.set_uniform<unsigned int>("shuf_buf_idx_out", *(shuf++));
 
                     glDispatchCompute(si.points_per_ts() / si.block_width, si.num_temporal_samples, 1);
                     glMemoryBarrier(GL_ALL_BARRIER_BITS);
-                    //                glFinish();
                 }
                 //perf_timer_results["draw calc"] += perf_timer.time<timer::ns>();
 
-                /*glUseProgram(particle_vf.name());
+                //glUseProgram(particle_vf.name());
 
-                float half_width = 800 / flame_def.scale / 2.0;
-                float half_height = 592 / flame_def.scale / 2.0;
-
-                auto proj = glm::ortho(
-                        flame_def.center[0] - half_width,
-                        flame_def.center[0] + half_width,
-                        flame_def.center[1] + half_height,
-                        flame_def.center[1] - half_height,
-                        -1.0f, 1.0f);
-
-                particle_vf.set_uniform<glm::mat4>("projection", proj);
+               
                 {
-                    glBindVertexArray(vao[!(i & 1)]);
-                    glDrawArrays(GL_POINTS, 0, num_points);
+                    //glBindVertexArray(vao[!(i & 1)]);
+                    //glDrawArrays(GL_POINTS, 0, si.num_points);
     //                glMemoryBarrier(GL_ALL_BARRIER_BITS);
-                    glFinish();
                 }
-                glUseProgram(cs.name());*/
+                //glUseProgram(cs.name());
             }
             glFinish();
             float drawn_parts = float(si.drawing_passes) * si.num_points;
@@ -704,31 +711,32 @@ int main(int, char**)
 
         }
         perf_timer_results["draw calc"] = perf_timer.time<timer::ns>();
-        fb.unbind();
-        glDisable(GL_BLEND);
         
         perf_timer.reset();
-        /*
+        
         {
-            glUseProgram(density_cs.name());
-            density_cs.set_uniform<int>("estimator_radius", flame_def.estimator_radius);
-            density_cs.set_uniform<int>("estimator_min", flame_def.estimator_min);
-            density_cs.set_uniform<float>("estimator_curve", flame_def.estimator_curve);
-            density_cs.set_uniform<int>("in_hist", 0);
-            density_cs.set_uniform<int>("out_hist", 1);
-            glBindImageTexture(0, render_targets[0].name(), 0, GL_FALSE, 0, GL_READ_ONLY, GL_RGBA32F);
-            glBindImageTexture(1, render_targets[1].name(), 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA32F);
-            glDispatchCompute(target_dims[0], target_dims[1], 1);
+            glUseProgram(density_vf.name());
+            density_vf.set_uniform<int>("estimator_radius", flame_def.estimator_radius);
+            density_vf.set_uniform<int>("estimator_min", flame_def.estimator_min);
+            density_vf.set_uniform<float>("estimator_curve", flame_def.estimator_curve);
+            density_vf.set_uniform<int>("row_width", target_dims[0]);
+            density_vf.set_uniform<glm::mat4>("projection", proj);
+            glDrawArrays(GL_POINTS, 0, target_dims[0] * target_dims[1]);
             glMemoryBarrier(GL_ALL_BARRIER_BITS);
             glFinish();
-        }*/
+        }
         perf_timer_results["density"] = perf_timer.time<timer::ns>();
+
+        fb.unbind();
+        glDisable(GL_BLEND);
 
         perf_timer.reset();
         {
             glUseProgram(tonemap_cs.name());
-            glBindImageTexture(0, render_targets[1].name(), 0, GL_FALSE, 0, GL_READ_WRITE, GL_RGBA32F);
-            tonemap_cs.set_uniform<int>("image", 0);
+            glBindImageTexture(0, render_targets[0].name(), 0, GL_FALSE, 0, GL_READ_ONLY, GL_RGBA32F);
+            glBindImageTexture(1, render_targets[1].name(), 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA32F);
+            tonemap_cs.set_uniform<int>("image_in", 0);
+            tonemap_cs.set_uniform<int>("image_out", 1);
             tonemap_cs.set_uniform<float>("scale_constant", 1.0/pow(10.0, scale_constant));
             tonemap_cs.set_uniform<float>("gamma", flame_def.gamma);
             tonemap_cs.set_uniform<float>("brightness", flame_def.brightness);
@@ -743,6 +751,7 @@ int main(int, char**)
         glViewport(0, 0, display_w, display_h);
         glClearColor(clear_color.x, clear_color.y, clear_color.z, clear_color.w);
         glClear(GL_COLOR_BUFFER_BIT);
+
 
         glUseProgram(quad_vf.name());
         glActiveTexture(GL_TEXTURE0);
