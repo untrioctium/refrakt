@@ -293,10 +293,10 @@ int main(int, char**)
 
     sim_info si{};
 
-    si.num_points = 1024 * 1024;
-    si.num_temporal_samples = 1024;
+    si.num_points = 512 * 512;
+    si.num_temporal_samples = 128;
 
-    si.block_width = 32;
+    si.block_width = 128;
     si.num_shuf_bufs = 1024;
     si.warmup_passes = 16;
     si.drawing_passes = 128;
@@ -308,9 +308,13 @@ int main(int, char**)
     si.warmup_random[1] = true;
 
     si.draw_random[0] = true;
-    si.draw_random[1] = true;
+    si.draw_random[1] = false;
 
     si.use_random_xform_selection = true;
+
+    const std::size_t image_dims[2] = { 1920, 1080 };
+    const std::size_t supersampling = 1;
+    const std::size_t target_dims[2] = { image_dims[0] * supersampling, image_dims[1] * supersampling };
 
     // Our state
     bool show_demo_window = true;
@@ -320,7 +324,7 @@ int main(int, char**)
     storage_buffer<float> samples{ make_sample_points(si.points_per_ts()) };
 
     auto variations = variation_table{ "variations.yaml" };
-    auto flame_def = load_flame("flames/electricsheep.247.28044.flam3", variations);
+    auto flame_def = load_flame("flames/electricsheep.247.35684.flam3", variations);
     auto buffer_map = make_shader_buffer_map(flame_def);
     auto shader_src = replace_macro(read_file("shaders/flame.glsl"), "varsource", variations.compile_flame_xforms(flame_def, buffer_map));
     shader_src = replace_macro(shader_src, "block_width", std::to_string(si.block_width));
@@ -370,8 +374,6 @@ int main(int, char**)
     auto flame_stats_init = std::vector<unsigned int>(16, 0);
     storage_buffer<unsigned int> flame_atomic_counters(flame_stats_init);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 10, flame_atomic_counters.name());
-
-    const std::size_t target_dims[2] = { 1920, 1080 };
 
     storage_buffer<std::array<float,4>> bins{ target_dims[0] * target_dims[1] };
     glClearNamedBufferData(bins.name(), GL_RGBA32F, GL_RGBA, GL_FLOAT, nullptr);
@@ -430,7 +432,7 @@ int main(int, char**)
 
     timer frame_timer;
 
-    const float DEGREES_PER_SECOND = 72.0f;
+    const float DEGREES_PER_SECOND = 18.0f;
 
     bool clear_parts = true;
     bool needs_clear = true;
@@ -457,15 +459,15 @@ int main(int, char**)
     std::vector<unsigned long long> running_xform_counts( flame_def.xforms.size(), 0 );
     std::vector<unsigned long long> current_xform_counts(flame_def.xforms.size(), 0 );
 
+    auto shuf_path = create_shuffle_buffer(si.num_shuf_bufs);
+    for (int i = 0; i < 16; i++) {
+        auto new_shuf = create_shuffle_buffer(si.num_shuf_bufs);
+        shuf_path.insert(shuf_path.end(), new_shuf.begin(), new_shuf.end());
+    }
+
     // Main loop
     while (!glfwWindowShouldClose(gl.window))
     {
-
-        auto shuf_path = create_shuffle_buffer(si.num_shuf_bufs);
-        for (int i = 0; i < 3; i++) {
-            auto new_shuf = create_shuffle_buffer(si.num_shuf_bufs);
-            shuf_path.insert(shuf_path.end(), new_shuf.begin(), new_shuf.end());
-        }
         std::unordered_map<std::string, float> perf_timer_results;
 
         float dt = float(frame_timer.time<timer::ms>()) / 1000.0f;
@@ -716,10 +718,15 @@ int main(int, char**)
         
         {
             glUseProgram(density_vf.name());
+            if (flame_def.estimator_radius > 100) flame_def.estimator_radius = 100;
             density_vf.set_uniform<int>("estimator_radius", flame_def.estimator_radius);
             density_vf.set_uniform<int>("estimator_min", flame_def.estimator_min);
             density_vf.set_uniform<float>("estimator_curve", flame_def.estimator_curve);
             density_vf.set_uniform<int>("row_width", target_dims[0]);
+            density_vf.set_uniform<float>("scale_constant", 1.0 / pow(10.0, scale_constant));
+            density_vf.set_uniform<float>("gamma", flame_def.gamma);
+            density_vf.set_uniform<float>("brightness", flame_def.brightness);
+            density_vf.set_uniform<float>("vibrancy", flame_def.vibrancy);
             density_vf.set_uniform<glm::mat4>("projection", proj);
             glDrawArrays(GL_POINTS, 0, target_dims[0] * target_dims[1]);
             glMemoryBarrier(GL_ALL_BARRIER_BITS);

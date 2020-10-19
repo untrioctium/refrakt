@@ -58,7 +58,7 @@ void main() {
 	vec4 part_state = pos_in[gl_WorkGroupID.y * gl_WorkGroupSize.x * gl_NumWorkGroups.x + i_idx];
 	vec4 result = dispatch(part_state.xyz, xid);
 
-	if(badval(result.x) || badval(result.y)) result.xyw = vec3(vec2(randf(), randf()) * 2.0 - 1.0, 0.0);
+	//if(badval(result.x) || badval(result.y)) result.xyw = vec3(vec2(randf(), randf()) * 2.0 - 1.0, 0.0);
 	
 	pos_out[gl_WorkGroupID.y * gl_WorkGroupSize.x * gl_NumWorkGroups.x + o_idx] = vec4(result.xyz, 0.0);
 
@@ -71,7 +71,7 @@ void main() {
 
 		if( coords.x >= 0 && coords.y >= 0 && coords.x < bin_dims.x && coords.y < bin_dims.y && result.w > 0 ) {
 			// 100% not thread safe in any manner
-			// it just werks though?
+			// it just werks though? possibly because only one block is ever executing at a time
 			bins[coords.y * bin_dims.x + coords.x] += vec4(palette[min(255, uint(ceil(result.z * 255.0)))].rgb, result.w);
 			atomicAdd(flame_atomic_counters[0], 1);
 		}

@@ -13,7 +13,7 @@ layout(std430, binding = 9) buffer fp_inflated_buffer
 layout(local_size_x = 32, local_size_y = 1, local_size_z = 1) in;
 
 uniform float temporal_sample_width = 0.0416666667;
-uniform float rads_per_second = 1.2566370614359;
+uniform float rads_per_second = 0.31415926535;
 
 void main() {
 	int half_width = int(gl_NumWorkGroups.x * gl_WorkGroupSize.x / 2);

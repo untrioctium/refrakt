@@ -11,7 +11,7 @@ layout (rgba32f) uniform image2D image_in;
 layout (rgba32f) uniform image2D image_out;
 
 uniform float gamma = 4.0;
-uniform float scale_constant = 1.0;
+uniform float scale_constant = 4.0;
 uniform float brightness = 100.0;
 uniform float vibrancy = 1.0;
 
@@ -22,7 +22,7 @@ void main()
 	//vec4 color = bins[pos.y * gl_NumWorkGroups.x * gl_WorkGroupSize.x + pos.x];
 
 	//float factor = (color.a) * log(color.a + 0.00001);
-	color *= .5 * brightness * log(1.0 + color.a * scale_constant) / color.a;
+	color *= .5 * brightness * log(1.0 + color.a * scale_constant) * 0.434294481903251827651128918916 / color.a;
 
 	float inv_gamma = 1.0/gamma;
 	float z= pow(color.a, inv_gamma);
