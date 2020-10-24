@@ -294,7 +294,7 @@ int main(int, char**)
     sim_info si{};
 
     si.num_points = 512 * 512;
-    si.num_temporal_samples = 128;
+    si.num_temporal_samples = 1024;
 
     si.block_width = 128;
     si.num_shuf_bufs = 1024;
@@ -324,7 +324,7 @@ int main(int, char**)
     storage_buffer<float> samples{ make_sample_points(si.points_per_ts()) };
 
     auto variations = variation_table{ "variations.yaml" };
-    auto flame_def = load_flame("flames/electricsheep.247.35684.flam3", variations);
+    auto flame_def = load_flame("flames/electricsheep.247.23090.flam3", variations);
     auto buffer_map = make_shader_buffer_map(flame_def);
     auto shader_src = replace_macro(read_file("shaders/flame.glsl"), "varsource", variations.compile_flame_xforms(flame_def, buffer_map));
     shader_src = replace_macro(shader_src, "block_width", std::to_string(si.block_width));
