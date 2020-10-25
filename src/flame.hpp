@@ -5,6 +5,10 @@
 #include <map>
 #include <cstddef>
 #include <vector>
+#include <memory>
+
+#include "buffer_objects.hpp"
+#include "shaders.hpp"
 
 struct motion_info {
     float freq;
@@ -56,4 +60,30 @@ struct flame {
         }
         if (final_xform) func(-1, final_xform.value());
     }
+
+    static void set_num_particles(std::size_t new_size) {
+        swap_buffer_.reset(new pos_buffer_t{ new_size });
+    }
+
+    enum class counters {
+        drawn,
+        NUM_COUNTERS
+    };
+
+private:
+
+    using pos_buffer_t = storage_buffer<std::array<float, 4>>;
+    using param_buffer_t = storage_buffer<float>;
+
+    static std::size_t num_temporal_samples_;
+
+    static std::unique_ptr<pos_buffer_t> swap_buffer_;
+    //std::unique_ptr<pos_buffer_t> local_buffer_ = std::make_unique<pos_buffer_t>(swap_buffer_->size());
+
+    std::unique_ptr<compute_shader> iterate_cs_;
+    std::unique_ptr<compute_shader> animate_cs_;
+
+    storage_buffer<unsigned int> counters_ = { static_cast<int>(flame::counters::NUM_COUNTERS) };
+
+
 };

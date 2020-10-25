@@ -89,6 +89,7 @@
       <PreprocessorDefinitions>WIN32;_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpplatest</LanguageStandard>
+      <AdditionalIncludeDirectories>$(ProjectDir)\src\extern\imgui-docking\backends;$(ProjectDir)\src\extern\imgui-docking;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -105,6 +106,7 @@
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpplatest</LanguageStandard>
       <FavorSizeOrSpeed>Speed</FavorSizeOrSpeed>
+      <AdditionalIncludeDirectories>$(ProjectDir)\src\extern\imgui-docking\backends;$(ProjectDir)\src\extern\imgui-docking;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -120,6 +122,7 @@
       <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions);_SILENCE_CXX17_ITERATOR_BASE_CLASS_DEPRECATION_WARNING</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpplatest</LanguageStandard>
+      <AdditionalIncludeDirectories>$(ProjectDir)\src\extern\imgui-docking\backends;$(ProjectDir)\src\extern\imgui-docking;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -138,6 +141,7 @@
       <LanguageStandard>stdcpplatest</LanguageStandard>
       <FavorSizeOrSpeed>Speed</FavorSizeOrSpeed>
       <InlineFunctionExpansion>AnySuitable</InlineFunctionExpansion>
+      <AdditionalIncludeDirectories>$(ProjectDir)\src\extern\imgui-docking\backends;$(ProjectDir)\src\extern\imgui-docking;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -149,6 +153,12 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="src\buffer_cache.cpp" />
+    <ClCompile Include="src\extern\imgui-docking\backends\imgui_impl_glfw.cpp" />
+    <ClCompile Include="src\extern\imgui-docking\backends\imgui_impl_opengl3.cpp" />
+    <ClCompile Include="src\extern\imgui-docking\imgui.cpp" />
+    <ClCompile Include="src\extern\imgui-docking\imgui_demo.cpp" />
+    <ClCompile Include="src\extern\imgui-docking\imgui_draw.cpp" />
+    <ClCompile Include="src\extern\imgui-docking\imgui_widgets.cpp" />
     <ClCompile Include="src\gl_util.cpp" />
     <ClCompile Include="src\hammersley.cpp" />
     <ClCompile Include="src\main.cpp" />

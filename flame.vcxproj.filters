@@ -28,6 +28,12 @@
     <Filter Include="Config\Shaders\templates">
       <UniqueIdentifier>{efd2e9c7-5381-454d-9ab8-2a92701666e3}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Source Files\Extern">
+      <UniqueIdentifier>{e1d91f01-86f3-4950-89f3-e24deb026efd}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\Extern\ImGUI">
+      <UniqueIdentifier>{7dfcd9ff-2f56-4a89-9f2c-f54a9049c7ab}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\main.cpp">
@@ -50,6 +56,24 @@
     </ClCompile>
     <ClCompile Include="src\buffer_cache.cpp">
       <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="src\extern\imgui-docking\imgui.cpp">
+      <Filter>Source Files\Extern\ImGUI</Filter>
+    </ClCompile>
+    <ClCompile Include="src\extern\imgui-docking\imgui_demo.cpp">
+      <Filter>Source Files\Extern\ImGUI</Filter>
+    </ClCompile>
+    <ClCompile Include="src\extern\imgui-docking\imgui_draw.cpp">
+      <Filter>Source Files\Extern\ImGUI</Filter>
+    </ClCompile>
+    <ClCompile Include="src\extern\imgui-docking\imgui_widgets.cpp">
+      <Filter>Source Files\Extern\ImGUI</Filter>
+    </ClCompile>
+    <ClCompile Include="src\extern\imgui-docking\backends\imgui_impl_glfw.cpp">
+      <Filter>Source Files\Extern\ImGUI</Filter>
+    </ClCompile>
+    <ClCompile Include="src\extern\imgui-docking\backends\imgui_impl_opengl3.cpp">
+      <Filter>Source Files\Extern\ImGUI</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>

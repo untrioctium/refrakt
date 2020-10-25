@@ -43,11 +43,12 @@ void main() {
 		)
 	);
 
-	gl_Position = projection * vec4(vec2(float(pos.x), float(pos.y)), 0.0, 1.0);
-	gl_PointSize = float(radius) * 2.0 + 1.0;
-	
 	float half_width = 1.0/(4.0 * float(radius) + 2.0);
 	offset = vec2(half_width, -half_width);
+
+	gl_Position = projection * vec4(vec2(float(pos.x), float(pos.y)) - offset, 0.0, 1.0);
+	gl_PointSize = float(radius) * 2.0 + 1.0;
+	
 
 	/*color *= .5 * brightness * log(1.0 + color.a * scale_constant) * 0.434294481903251827651128918916 / color.a;
 
