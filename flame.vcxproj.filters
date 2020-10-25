@@ -75,6 +75,9 @@
     <ClCompile Include="src\extern\imgui-docking\backends\imgui_impl_opengl3.cpp">
       <Filter>Source Files\Extern\ImGUI</Filter>
     </ClCompile>
+    <ClCompile Include="src\flame.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <None Include="variations.yaml">

@@ -15,11 +15,6 @@ uniform int total_params;
 uniform bool do_draw;
 uniform uvec2 bin_dims;
 
-uniform vec2 win_min;
-uniform float scale;
-
-uniform bool use_random_xform_selection;
-uniform bool make_xform_dist;
 uniform uint shuf_buf_idx_in;
 uniform uint shuf_buf_idx_out;
 
@@ -48,14 +43,14 @@ void main() {
 
 	if( gl_LocalInvocationID.x == 0 ) {
 		for(int i = 0; i < total_params; i++ ) fp[i] = fp_inflated[total_params * gl_WorkGroupID.y + i];
-		xid = get_xform_id((use_random_xform_selection)? randf(): float(gl_WorkGroupID.x) / float(gl_NumWorkGroups.x));
+		xid = get_xform_id(randf());
 	}
 	barrier();
 
 	uint i_idx = (random_read)? get_in_shuf_idx(): gl_GlobalInvocationID.x;
 	uint o_idx = (random_write)? get_out_shuf_idx(): gl_GlobalInvocationID.x;
 
-	vec4 part_state = pos_in[gl_WorkGroupID.y * gl_WorkGroupSize.x * gl_NumWorkGroups.x + i_idx];
+	vec4 part_state = pos_in[((!first_run)?gl_WorkGroupID.y: 0) * gl_WorkGroupSize.x * gl_NumWorkGroups.x + i_idx];
 	vec4 result = dispatch(part_state.xyz, xid);
 
 	//if(badval(result.x) || badval(result.y)) result.xyw = vec3(vec2(randf(), randf()) * 2.0 - 1.0, 0.0);

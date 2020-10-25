@@ -8,8 +8,8 @@
 #include "util.hpp"
 #include "variation_table.hpp"
 
-using optimizer_pred_t = std::function<bool(const flame_xform&, const variation_table&)>;
-using optimizer_t = std::function<std::pair<bool, std::string>(const flame_xform&, const nlohmann::json&, const variation_table&)>;
+using optimizer_pred_t = std::function<bool(const flame_xform&, const flame_compiler&)>;
+using optimizer_t = std::function<std::pair<bool, std::string>(const flame_xform&, const nlohmann::json&, const flame_compiler&)>;
 
 std::string make_param_str(const nlohmann::json& v, int offset = 0) { return "fp[" + std::to_string(v.get<int>() /*- offset*/) + "]"; }
 
@@ -65,8 +65,8 @@ void resolve_post(std::string& src, const nlohmann::json& buf_map) {
     }
 }
 
-#define OPTIMIZER_PRED [](const flame_xform& x, const variation_table& vt) -> bool
-#define OPTIMIZER_BODY [](const flame_xform& x, const nlohmann::json& xmap, const variation_table& vt) -> std::pair<bool, std::string>
+#define OPTIMIZER_PRED [](const flame_xform& x, const flame_compiler& vt) -> bool
+#define OPTIMIZER_BODY [](const flame_xform& x, const nlohmann::json& xmap, const flame_compiler& vt) -> std::pair<bool, std::string>
 
 auto& get_optimizers() {
 
@@ -172,8 +172,8 @@ void default_replace_macros(std::string& str) {
     str = replace_macro(str, "result", "result");
 }
 
-variation_table::variation_table(const std::string& def_path) {
-    auto defs = YAML::LoadFile(def_path);
+flame_compiler::flame_compiler() {
+    auto defs = YAML::LoadFile("variations.yaml");
     auto variations = defs["variations"];
 
     for (auto it = variations.begin(); it != variations.end(); it++) {
@@ -207,9 +207,10 @@ variation_table::variation_table(const std::string& def_path) {
     }
 }
 
-std::string variation_table::compile_flame_xforms(const flame& f, const nlohmann::json& buf_map)
+std::string flame_compiler::compile_flame_xforms(const flame& f) const
 {
     std::string compiled{};
+    const auto& buf_map = f.buffer_map_;
 
     std::string disp_func = std::string("vec4 dispatch(vec3 v, int xform){\n").append("switch(xform){\n");
     // concat sources
@@ -233,7 +234,7 @@ std::string variation_table::compile_flame_xforms(const flame& f, const nlohmann
         std::string dispatch_invoke = 
             fmt::format("return vec4({}, mix(((first_run)? randf(): v.z), {}, {}), {});\n", (inlined)? xform_src: "result", make_param_str(xform_map["color"]),make_param_str(xform_map["color_speed"]), make_param_str(xform_map["opacity"]));
         if (!inlined) dispatch_invoke = xform_src + dispatch_invoke;
-        if(i != -1) dispatch_invoke = fmt::format("atomicAdd(xform_invoke_count[{}], 1);\n", i) + dispatch_invoke;
+        //if(i != -1) dispatch_invoke = fmt::format("atomicAdd(xform_invoke_count[{}], 1);\n", i) + dispatch_invoke;
         // append to the dispatch function
         if (i + 1 == f.xforms.size()) {
             disp_func += "default: {\n" + dispatch_invoke + "\n}}\n";

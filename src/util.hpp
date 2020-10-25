@@ -9,8 +9,6 @@ std::string replace_macro(const std::string& str, const std::string& macro, cons
 std::set<std::string> find_macros(const std::string& str);
 std::string read_file(const std::string& path);
 
-
-
 template<typename T, std::size_t Size, typename Conv>
 std::array<T, Size> parse_strings(const std::string&& in, Conv&& cv) {
     std::array<T, Size> ret{};

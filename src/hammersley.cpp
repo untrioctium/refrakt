@@ -1,5 +1,6 @@
 #include <cstddef>
 #include <vector>
+#include <array>
 
 constexpr uint32_t ReverseBits32(uint32_t n) {
     n = (n << 16) | (n >> 16);
@@ -25,9 +26,9 @@ std::uint32_t next_pow2(std::uint32_t v) {
     return v;
 }
 
-std::vector<float> make_sample_points(std::uint32_t count) {
-    std::vector<float> ret{};
-    ret.resize(count * std::size_t{ 2 });
+std::vector<std::array<float,4>> make_sample_points(std::uint32_t count) {
+    std::vector<std::array<float, 4>> ret{};
+    ret.resize(count);
 
     std::uint32_t max = (count % 2 == 0) ? count : next_pow2(count);
     float inv_max = 1.0f / max;
@@ -39,8 +40,8 @@ std::vector<float> make_sample_points(std::uint32_t count) {
         r++;
     }
     for (std::uint32_t i = 0; i < count; i++) {
-        ret[i * 2] = (i * inv_max) * 2.0 - 1.0;
-        ret[i * 2 + 1] = (flip_bits(i, r) * inv_max) * 2.0 - 1.0;
+        ret[i][0] = (i * inv_max) * 2.0 - 1.0;
+        ret[i][1] = (flip_bits(i, r) * inv_max) * 2.0 - 1.0;
     }
 
     return ret;

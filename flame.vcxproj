@@ -159,6 +159,7 @@
     <ClCompile Include="src\extern\imgui-docking\imgui_demo.cpp" />
     <ClCompile Include="src\extern\imgui-docking\imgui_draw.cpp" />
     <ClCompile Include="src\extern\imgui-docking\imgui_widgets.cpp" />
+    <ClCompile Include="src\flame.cpp" />
     <ClCompile Include="src\gl_util.cpp" />
     <ClCompile Include="src\hammersley.cpp" />
     <ClCompile Include="src\main.cpp" />

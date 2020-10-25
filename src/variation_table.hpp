@@ -17,9 +17,9 @@ struct variation_definition {
 
 };
 
-struct variation_table {
+struct flame_compiler {
 public:
-    variation_table(const std::string& def_path);
+    flame_compiler();
 
     void print_variations() {
         for (auto& [k, v] : common_) {
@@ -48,7 +48,7 @@ public:
 
     std::string common(const std::string& name) const { return common_.at(name); }
 
-    std::string compile_flame_xforms(const flame& f, const nlohmann::json& buf_map);
+    std::string compile_flame_xforms(const flame& f) const;
 private:
 
     std::string make_xform_src(const flame_xform& xform, const nlohmann::json& buf_map, const std::string& xform_name);

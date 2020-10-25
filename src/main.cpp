@@ -31,10 +31,7 @@
 
 
 void glDebugOutput(GLenum source,GLenum type,GLuint id,GLenum severity,GLsizei length,const GLchar* message,const void* userParam);
-std::vector<float> make_sample_points(std::uint32_t count);
 
-std::vector<std::uint32_t> create_shuffle_buffer(std::uint32_t size);
-void make_shuffle_buffers(std::uint32_t size, std::size_t count);
 
 inline void Style()
 {
@@ -128,174 +125,6 @@ inline void Style()
 #endif
 }
 
-flame_xform::affine_t rotate_affine(const flame_xform::affine_t& a, float deg) {
-    float rad = 0.01745329251f * deg;
-    float sino = sinf(rad);
-    float coso = cosf(rad);
-
-    flame_xform::affine_t ret = a;
-    ret[0] = a[0] * coso + a[2] * sino;
-    ret[1] = a[1] * coso + a[3] * sino;
-    ret[2] = a[2] * coso - a[0] * sino;
-    ret[3] = a[3] * coso - a[1] * sino;
-
-    return ret;
-}
-
-flame_xform::affine_t scale_affine(const flame_xform::affine_t& a, float scale) {
-    flame_xform::affine_t ret = a;
-
-    ret[0] = a[0] * scale;
-    ret[1] = a[1] * scale;
-    ret[2] = a[2] * scale;
-    ret[3] = a[3] * scale;
-
-    return ret;
-}
-
-flame_xform::affine_t translate_affine(const flame_xform::affine_t& a, const std::array<float, 2>& t) {
-    flame_xform::affine_t ret = a;
-
-    ret[4] = ret[0] * t[0] + ret[2] * t[1] + a[4];
-    ret[5] = ret[1] * t[0] + ret[3] * t[1] + a[5];
-    return ret;
-}
-
-flame load_flame(const std::string& path, const variation_table& vt) {
-    pugi::xml_document doc;
-    auto result = doc.load_file(path.c_str());
-
-    flame f{};
-    auto flame_node = doc.child("flame");
-    f.center = parse_strings<float, 2>(std::string{ flame_node.attribute("center").value() }, [](auto& v) {return std::stof(v); });
-
-    f.scale = flame_node.attribute("scale").as_float();
-    f.rotate = flame_node.attribute("rotate").as_float();
-    f.estimator_curve = flame_node.attribute("estimator_curve").as_float();
-    f.estimator_min = flame_node.attribute("estimator_min").as_int();
-    f.estimator_radius = flame_node.attribute("estimator_radius").as_int();
-    f.brightness = flame_node.attribute("brightness").as_float();
-    f.gamma = flame_node.attribute("gamma").as_float();
-    f.vibrancy = flame_node.attribute("vibrancy").as_float();;
-    f.size = parse_strings<unsigned int, 2>(std::string{ flame_node.attribute("size").value() }, [](auto& v) { return (unsigned int)std::stoi(v); });
-
-    for (auto node : flame_node.children()) {
-        std::string node_name = node.name();
-        if (node_name == "xform" || node_name == "finalxform") {
-            flame_xform xform{};
-            for (auto attr : node.attributes()) {
-                std::string name = attr.name();
-
-                if (name == "weight") xform.weight = attr.as_float();
-                else if (name == "color") xform.color = attr.as_float();
-                else if (name == "color_speed") xform.color_speed = attr.as_float();
-                else if (name == "animate") xform.animate = attr.as_int() == 1;
-                else if (name == "opacity") xform.opacity = attr.as_float();
-                else if (vt.is_param(name)) xform.var_param[name] = attr.as_float();
-                else if (vt.is_variation(name)) xform.variations[name] = attr.as_float();
-                else if (name == "coefs") xform.affine = parse_strings<float, 6>(std::string{ attr.value() }, [](auto& v) {return std::stof(v); });
-                else if (name == "post") xform.post = parse_strings<float, 6>(std::string{ attr.value() }, [](auto& v) {return std::stof(v); });
-                else { std::cout << "Unknown attribute " << name << " in flame " << path << std::endl; }
-            }
-
-            /*for (auto motion : node.children("motion")) {
-                motion_info m{};
-                m.freq = motion.attribute("motion_frequency").as_float();
-                m.function = motion.attribute("motion_function").as_string();
-
-                for (auto a : motion.attributes()) {
-                    if (a.name() != "motion_frequency" && a.name() != "motion_function") {
-                        m.freq = a.as_float();
-                        xform.motion[a.name()] = m;
-                    }
-                }
-            }*/
-
-            if (node_name == "finalxform") { f.final_xform = xform;}
-            else { f.xforms.push_back(xform); }
-        }
-        else if (node_name == "color") {
-            auto idx = node.attribute("index").as_ullong();
-            f.palette[idx] = parse_strings<float, 4>(std::string{ node.attribute("rgb").value() }, [](auto& v) { return std::stoi(v)/256.0f; });
-            f.palette[idx][3] = 1.0f;
-        }
-    }
-
-    return f;
-}
-
-using buffer_map_t = nlohmann::json;
-
-buffer_map_t make_shader_buffer_map(const flame& flame) {
-    nlohmann::json buffer_map{};
-    int counter = 0;
-    buffer_map["xforms"] = nlohmann::json::array();
-
-    auto make_xform_map = [&counter](const flame_xform& xform) {
-        nlohmann::json xform_map = nlohmann::json::object();
-        int start = counter;
-        xform_map["meta"]["start"] = start;
-        xform_map["meta"]["animated"] = xform.animate;
-        xform_map["weight"] = counter++;
-
-        xform_map["affine"] = std::vector{ counter++, counter++, counter++, counter++, counter++, counter++ };
-        if (xform.post) xform_map["post"] = std::vector{ counter++, counter++, counter++, counter++, counter++, counter++ };
-        xform_map["variations"] = nlohmann::json::object();
-        for (auto& [k, v] : xform.variations) xform_map["variations"][k] = counter++;
-        xform_map["param"] = nlohmann::json::object();
-        for (auto& [k, v] : xform.var_param) xform_map["param"][k] = counter++;
-        xform_map["color"] = counter++;
-        xform_map["color_speed"] = counter++;
-        xform_map["opacity"] = counter++;
-
-        xform_map["meta"]["end"] = counter - 1;
-        xform_map["meta"]["size"] = counter - start;
-
-        return xform_map;
-    };
-
-    for (const auto& xform : flame.xforms) {
-        buffer_map["xforms"].push_back(make_xform_map(xform));
-    }
-
-    if (flame.final_xform) buffer_map["final_xform"] = make_xform_map(flame.final_xform.value());
-
-    buffer_map["size"] = counter++;
-
-    return buffer_map;
-}
-
-using fp_buffer_t = std::array<float, 1024>;
-void copy_flame_data_to_buffer(const flame& f, const buffer_map_t& buf_map, storage_buffer<float>& pbuf) {
-
-    fp_buffer_t buf;
-
-    float normal_weight = 0.0;
-    for (auto& x : f.xforms) normal_weight += x.weight;
-
-    auto push_xform = [&](const auto& xform, const auto& xmap) {
-        buf[xmap["weight"]] = xform.weight / normal_weight;
-        for (int a = 0; a < 6; a++) buf[xmap["affine"][a]] = xform.affine[a];
-        for (auto& [n, w] : xform.variations) buf[xmap["variations"][n]] = w;
-        for (auto& [n, v] : xform.var_param) buf[xmap["param"][n]] = v;
-        if (xform.post) for (int a = 0; a < 6; a++) buf[xmap["post"][a]] = xform.post.value()[a];
-        buf[xmap["color"]] = xform.color;
-        buf[xmap["opacity"]] = xform.opacity;
-        buf[xmap["color_speed"]] = xform.color_speed;
-    };
-
-    for (int i = 0; i < f.xforms.size(); i++) {
-        const auto& xform = f.xforms.at(i);
-        const auto& xmap = buf_map["xforms"][i];
-
-        push_xform(xform, xmap);
-    }
-
-    if (f.final_xform) push_xform(f.final_xform.value(), buf_map["final_xform"]);
-
-    pbuf.update_all(buf.data());
-}
-
 struct gl_state {
     GLFWwindow* window;
     GLFWmonitor* primary_monitor;
@@ -349,31 +178,6 @@ std::pair<gl_state, int> init_gl(int w, int h, bool fullscreen) {
     return { rs, 0 };
 }
 
-struct sim_package {
-};
-
-struct sim_info {
-    std::size_t num_points;
-    std::size_t num_temporal_samples;
-    
-    int warmup_passes;
-    int drawing_passes;
-
-    int num_shuf_bufs;
-
-    bool sample_random[2];
-    bool warmup_random[2];
-    bool draw_random[2];
-
-    bool use_random_xform_selection;
-
-    int block_width;
-
-    int abort_after_ms;
-
-    std::size_t points_per_ts() const { return num_points / num_temporal_samples; }
-};
-
 int main(int, char**)
 {
     auto [gl, error] = init_gl(1920, 1080, false);
@@ -386,29 +190,7 @@ int main(int, char**)
     std::mt19937 generator{rd()};
     std::uniform_real_distribution<float> dist(19232581.235235, 91212584.1241251);
 
-    sim_info si{};
-
-    si.num_points = 512 * 512;
-    si.num_temporal_samples = 1024;
-
-    si.block_width = 128;
-    si.num_shuf_bufs = 1024;
-    si.warmup_passes = 16;
-    si.drawing_passes = 128;
-
-    si.sample_random[0] = true;
-    si.sample_random[1] = false;
-
-    si.warmup_random[0] = true;
-    si.warmup_random[1] = true;
-
-    si.draw_random[0] = true;
-    si.draw_random[1] = false;
-    si.abort_after_ms = 100;
-
-    si.use_random_xform_selection = true;
-
-    const std::size_t image_dims[2] = { 1280, 720 };
+    const std::size_t image_dims[2] = { 1920, 1080 };
     const std::size_t supersampling = 2;
     const std::size_t target_dims[2] = { image_dims[0] * supersampling, image_dims[1] * supersampling };
 
@@ -417,114 +199,24 @@ int main(int, char**)
     bool show_another_window = false;
     ImVec4 clear_color = ImVec4(0.0f, 0.0f, 0.0f, 1.00f);
 
-    storage_buffer<float> samples{ make_sample_points(si.points_per_ts()) };
+    flame::set_sim_parameters(1024 * 1024, 1024, 128);
 
-    auto variations = variation_table{ "variations.yaml" };
-    auto flame_def = load_flame("flames/electricsheep.247.38128.flam3", variations);
-    auto buffer_map = make_shader_buffer_map(flame_def);
-    auto shader_src = replace_macro(read_file("shaders/flame.glsl"), "varsource", variations.compile_flame_xforms(flame_def, buffer_map));
-    shader_src = replace_macro(shader_src, "block_width", std::to_string(si.block_width));
-    shader_src = replace_macro(shader_src, "final_xform_call", (flame_def.final_xform) ? "result = dispatch(result.xyz, -1) * vec4(1.0, 1.0, 1.0, result.w);" : "");
+    auto variations = flame_compiler{};
+    auto flame_def = flame::load_flame("flames/electricsheep.247.11256.flam3", variations);
 
-
-
-
-    auto animate_src = inja::render(read_file("shaders/templates/animate.tpl.glsl"), buffer_map);
-
-    std::cout << "BUFFER MAP\n" << std::endl;
-    std::cout << buffer_map.dump(1) << std::endl;
-
-    std::cout << "SHADER SRC\n" << std::endl;
-    std::cout << shader_src << std::endl;
-
-    std::cout << "ANIMATE SRC\n" << std::endl;
-    std::cout << animate_src << std::endl;
-
-    auto cs = compute_shader(shader_src);
     auto tonemap_cs = compute_shader(read_file("shaders/tonemap.glsl"));
-    auto quad_vf = vf_shader(read_file("shaders/quad_vert.glsl"), read_file("shaders/quad_frag.glsl"));
     auto density_vf = vf_shader(read_file("shaders/density_vert.glsl"), read_file("shaders/density_frag.glsl"));
-    auto animate_cs = compute_shader(animate_src);
-    auto particle_vf = vf_shader(read_file("shaders/particle_vert.glsl"), read_file("shaders/particle_frag.glsl"));
 
-    auto print_buffer = [](auto& buf, auto& name) { std::cout << name << ": " << buf.name() << std::endl; };
-
-    storage_buffer<std::array<float, 4>> pos[4] = { {si.num_points},{si.num_points},{si.num_points},{si.num_points} };
     GLuint vao;
   
     glGenVertexArrays(1, &vao);
     glBindVertexArray(vao);
 
-    storage_buffer<float> fp{ 1024 };
-    print_buffer(fp, "uninflated params");
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 5, fp.name());
-
-    storage_buffer<std::array<float, 4>> palette{ 256, flame_def.palette.data() };
-    print_buffer(palette, "palette");
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 6, palette.name());
-
-    auto xform_atomic_init = std::vector<unsigned int>(flame_def.xforms.size(), 0);
-    storage_buffer<unsigned int> xform_atomic_counters{ xform_atomic_init };
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 7, xform_atomic_counters.name());
-
-    auto flame_stats_init = std::vector<unsigned int>(16, 0);
-    storage_buffer<unsigned int> flame_atomic_counters(flame_stats_init);
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 10, flame_atomic_counters.name());
-
     storage_buffer<std::array<float,4>> bins{ target_dims[0] * target_dims[1] };
     glClearNamedBufferData(bins.name(), GL_RGBA32F, GL_RGBA, GL_FLOAT, nullptr);
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 8, bins.name());
-
-    storage_buffer<float> inflated_functions{ buffer_map["size"] * si.num_temporal_samples };
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 9, inflated_functions.name());
-
-    auto shuf_cache_group = buffer_cache::buffer_group("shuffle", std::to_string(si.points_per_ts()));
-
-    while (shuf_cache_group.cached_buffers().size() < si.num_shuf_bufs) {
-        make_shuffle_buffers(si.points_per_ts(), 8);
-    }
-
-    auto shuf_buffers = shuf_cache_group.cached_buffers();
-    auto shuf_shuf = create_shuffle_buffer(shuf_buffers.size());
-    
-    storage_buffer<std::uint32_t> shuf_buf{ si.num_shuf_bufs * si.points_per_ts() };
-
-    for (int i = 0; i < si.num_shuf_bufs; i++) {
-        std::string name = shuf_buffers[shuf_shuf[i]];
-        shuf_buf.update_many(si.points_per_ts() * i, si.points_per_ts(), shuf_cache_group.read_buffer<std::uint32_t>(name).data());
-    }
-
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, shuf_buf.name());
-
-    storage_buffer<jsf32::ctx> rand_states{ si.num_points };
-    auto rand_state_group = buffer_cache::buffer_group("rand_state", std::to_string(si.num_points));
-
-    if (rand_state_group.cached_buffers().size() < 1) {
-        std::vector<jsf32::ctx> states{};
-        states.resize(si.num_points);
-
-        for (jsf32::u4 i = 0; i < si.num_points; i++) {
-            jsf32::warmup_ctx(states[i], i);
-        }
-
-        rand_state_group.write_buffer(states);
-    }
-
-    auto buf_name = rand_state_group.cached_buffers().at(0);
-    auto rs_buf = rand_state_group.read_buffer<jsf32::ctx>(buf_name);
-
-
-
-    rand_states.update_all(rs_buf.data());
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 11, rand_states.name());
-    print_buffer(rand_states, "rand");
-    const int in_buf_pos = 0;
-    const int out_buf_pos = 1;
-    const int in_buf_col = 2;
-    const int out_buf_col = 3;
+    //glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 8, bins.name());
 
     texture<float> render_targets[2] = { {target_dims[0], target_dims[1]}, {target_dims[0], target_dims[1]} };
-    frame_buffer fb;
 
     timer frame_timer;
 
@@ -550,15 +242,15 @@ int main(int, char**)
     int rendered_frames = 0;
     int total_frames_needed = 300;
 
-    flame_def.scale *= float(target_dims[1]) / float(flame_def.size[1]);
+    //flame_def->scale *= float(target_dims[1]) / float(flame_def->size[1]);
 
-    std::vector<unsigned long long> running_xform_counts( flame_def.xforms.size(), 0 );
-    std::vector<unsigned long long> current_xform_counts(flame_def.xforms.size(), 0 );
+    frame_buffer fb;
 
-    auto shuf_path = create_shuffle_buffer(si.num_shuf_bufs);
-    for (int i = 0; i < 16; i++) {
-        auto new_shuf = create_shuffle_buffer(si.num_shuf_bufs);
-        shuf_path.insert(shuf_path.end(), new_shuf.begin(), new_shuf.end());
+    std::vector<std::string> avail_flames;
+    for (auto& f : std::filesystem::directory_iterator("flames")) {
+        if (f.is_regular_file() && f.path().extension() == ".flam3") {
+            avail_flames.push_back(f.path().stem().string());
+        }
     }
 
     // Main loop
@@ -570,9 +262,9 @@ int main(int, char**)
         float fps_avg = fps.add(dt);
         frame_timer.reset();
 
-        xform_atomic_counters.update_all(xform_atomic_init.data());
-        flame_atomic_counters.update_all(flame_stats_init.data());
-        auto shuf = shuf_path.begin();
+        //xform_atomic_counters.update_all(xform_atomic_init.data());
+        //flame_atomic_counters.update_all(flame_stats_init.data());
+        //auto shuf = shuf_path.begin();
 
         glfwPollEvents();
 
@@ -583,13 +275,20 @@ int main(int, char**)
         ImGui::DockSpaceOverViewport(ImGui::GetMainViewport());
         ImGui::ShowDemoWindow();
 
+        ImGui::Begin("Load Flame");
+        for (auto& path : avail_flames) {
+            if (ImGui::Button(path.c_str())) {
+                flame_def = flame::load_flame("flames/" + path + ".flam3", variations);
+                needs_clear = true;
+            }
+        }
+        ImGui::End();
+
         if (ImGui::BeginMainMenuBar()) {
             if (ImGui::BeginMenu("File")) { ImGui::EndMenu(); }
             if (ImGui::BeginMenu("Edit")) {
                 if (ImGui::MenuItem("Settings")) {
-                    ImGui::OpenPopup("Settings");
-
-
+                    //ImGui::OpenPopup("Settings");
                 }
                 if (ImGui::BeginPopupModal("Settings")) {
                     if (ImGui::Button("Close")) {
@@ -605,9 +304,10 @@ int main(int, char**)
             ImGui::EndMainMenuBar();
         }
 
+        if(flame_def->needs_warmup() || needs_clear) flame_def->warmup(16, 1 / 60.0f);
+        flame_def->draw_to_bins(bins, target_dims[0], 64);
 
-
-        ImGui::Begin("Sim Configuration");
+        /*ImGui::Begin("Sim Configuration");
         needs_clear |= ImGui::InputInt("Warmup Passes", &si.warmup_passes, 2, 2);
         needs_clear |= ImGui::InputInt("Drawing Passes", &si.drawing_passes, 2, 2);
         needs_clear |= ImGui::InputInt("Drawing ms limit", &si.abort_after_ms, 1, 1);
@@ -615,9 +315,9 @@ int main(int, char**)
         needs_clear |= ImGui::DragFloat("Temporal Sample Width", &tss_width, .01, 0, .25);
         needs_clear |= ImGui::InputInt("Quality Target", (int*) &needed_quality, 10, 100);
         do_step = ImGui::Button("Advance 1/60s");
-        ImGui::End();
+        ImGui::End();*/
 
-        ImGui::Begin("Flame Info"); {
+        /*ImGui::Begin("Flame Info"); {
             needs_clear |= ImGui::DragFloat("Scale", &flame_def.scale, 1, 1, 10000);
             needs_clear |= ImGui::DragFloat2("Center", flame_def.center.data(), .01, -5, 5);
             needs_clear |= ImGui::DragFloat("Rotate", &flame_def.rotate, 1.0, -360.0, 360.0);
@@ -663,12 +363,12 @@ int main(int, char**)
                     ImGui::ColorEdit4(std::to_string(i).c_str(), c.data());
                 }
             }
-        } ImGui::End(); //Flame Info
+        } ImGui::End(); //Flame Info*/
 
         float rotation = DEGREES_PER_SECOND * dt;
 
         //Do rotation
-        if(animate || advance_frame)
+        /*if(animate || advance_frame)
             for (auto& x : flame_def.xforms) {
                 if (x.animate) x.affine = rotate_affine(x.affine, rotation);
                 needs_clear = true;
@@ -687,73 +387,6 @@ int main(int, char**)
             accumulated = 0;
             for (auto& c : running_xform_counts) c = 0;
         }
-
-        // Rendering
-        int display_w, display_h;
-
-
-
-        timer perf_timer;
-        timer perf_timer_total;
-        perf_timer.reset();
-        if (needs_clear) {
-            copy_flame_data_to_buffer(flame_def, buffer_map, fp);
-            glMemoryBarrier(GL_ALL_BARRIER_BITS);
-            glFinish();
-        }
-        perf_timer_results["copy data"] = perf_timer.time<timer::ns>();
-
-        glUseProgram(cs.name());
-
-        cs.set_uniform<bool>("use_random_xform_selection", si.use_random_xform_selection);
-        cs.set_uniform<int>("total_params", buffer_map["size"]);
-
-        perf_timer.reset();
-        if (needs_clear)
-        {
-            // inflate parameters
-            glUseProgram(animate_cs.name());
-            animate_cs.set_uniform<float>("temporal_sample_width", tss_width);
-            glDispatchCompute(si.num_temporal_samples / 32, 1, 1);
-            glMemoryBarrier(GL_ALL_BARRIER_BITS);
-            glFinish();
-
-            glUseProgram(cs.name());
-
-            // first pass, random read from sample points and flame pass
-            glBindBufferBase(GL_SHADER_STORAGE_BUFFER, in_buf_pos, samples.name());
-            glBindBufferBase(GL_SHADER_STORAGE_BUFFER, out_buf_pos, pos[0].name());
-            cs.set_uniform<bool>("make_xform_dist", false);
-            cs.set_uniform<bool>("random_read", si.sample_random[0]);
-            cs.set_uniform<bool>("random_write", si.sample_random[1]);
-            cs.set_uniform<bool>("first_run", true);
-            cs.set_uniform<bool>("do_draw", false);
-            cs.set_uniform<float>("rand_seed", dist(generator));
-            if(si.sample_random[0]) cs.set_uniform<unsigned int>("shuf_buf_idx_in", *(shuf++));
-            if(si.sample_random[1]) cs.set_uniform<unsigned int>("shuf_buf_idx_out", *(shuf++));
-            glDispatchCompute(si.points_per_ts() / si.block_width, si.num_temporal_samples, 1);
-            glMemoryBarrier(GL_ALL_BARRIER_BITS);
-            glFinish();
-            //perf_timer_results["sample"] = perf_timer.time<timer::ns>();
-
-            cs.set_uniform<bool>("random_read", si.warmup_random[0]);
-            cs.set_uniform<bool>("random_write", si.warmup_random[1]);
-            cs.set_uniform<bool>("first_run", false);
-
-            //perf_timer.reset();
-            // warm up passes, random read and write
-            for (int i = 0; i < si.warmup_passes; i++) {
-                glBindBufferBase(GL_SHADER_STORAGE_BUFFER, in_buf_pos, pos[i & 1].name());
-                glBindBufferBase(GL_SHADER_STORAGE_BUFFER, out_buf_pos, pos[!(i & 1)].name());
-                cs.set_uniform<float>("rand_seed", dist(generator));
-                if(si.warmup_random[0]) cs.set_uniform<unsigned int>("shuf_buf_idx_in", *(shuf++));
-                if(si.warmup_random[1]) cs.set_uniform<unsigned int>("shuf_buf_idx_out", *(shuf++));
-                glDispatchCompute(si.points_per_ts() / si.block_width, si.num_temporal_samples, 1);
-                glMemoryBarrier(GL_ALL_BARRIER_BITS);
-                glFinish();
-            }
-        }
-        perf_timer_results["warm up"] = perf_timer.time<timer::ns>();
 
         fb.bind();
         frame_buffer::attach(render_targets[0].name());
@@ -842,29 +475,40 @@ int main(int, char**)
         perf_timer_results["draw calc"] = perf_timer.time<timer::ns>();
         
         perf_timer.reset();
-        
+        */
+
+        fb.bind();
+        frame_buffer::attach(render_targets[0].name());
+        glClearColor(0, 0, 0, 0);
+        glClear(GL_COLOR_BUFFER_BIT);
+        glEnable(GL_PROGRAM_POINT_SIZE);
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_ONE, GL_ONE);
+        glViewport(0, 0, target_dims[0], target_dims[1]);
+
         {
+            auto proj = glm::ortho(0.0f, float(target_dims[0]), float(target_dims[1]), 0.0f, -1.0f, 1.0f);
             glUseProgram(density_vf.name());
-            if (flame_def.estimator_radius > 100) flame_def.estimator_radius = 100;
-            density_vf.set_uniform<int>("estimator_radius", flame_def.estimator_radius);
-            density_vf.set_uniform<int>("estimator_min", flame_def.estimator_min);
-            density_vf.set_uniform<float>("estimator_curve", flame_def.estimator_curve);
+            if (flame_def->estimator_radius > 100) flame_def->estimator_radius = 100;
+            density_vf.set_uniform<int>("estimator_radius", flame_def->estimator_radius);
+            density_vf.set_uniform<int>("estimator_min", flame_def->estimator_min);
+            density_vf.set_uniform<float>("estimator_curve", flame_def->estimator_curve);
             density_vf.set_uniform<int>("row_width", target_dims[0]);
             density_vf.set_uniform<float>("scale_constant", 1.0 / pow(10.0, scale_constant));
-            density_vf.set_uniform<float>("gamma", flame_def.gamma);
-            density_vf.set_uniform<float>("brightness", flame_def.brightness);
-            density_vf.set_uniform<float>("vibrancy", flame_def.vibrancy);
+            density_vf.set_uniform<float>("gamma", flame_def->gamma);
+            density_vf.set_uniform<float>("brightness", flame_def->brightness);
+            density_vf.set_uniform<float>("vibrancy", flame_def->vibrancy);
             density_vf.set_uniform<glm::mat4>("projection", proj);
             glDrawArrays(GL_POINTS, 0, target_dims[0] * target_dims[1]);
             glMemoryBarrier(GL_ALL_BARRIER_BITS);
             glFinish();
         }
-        perf_timer_results["density"] = perf_timer.time<timer::ns>();
+        //perf_timer_results["density"] = perf_timer.time<timer::ns>();
 
         fb.unbind();
         glDisable(GL_BLEND);
 
-        perf_timer.reset();
+        //perf_timer.reset();
         {
             glUseProgram(tonemap_cs.name());
             glBindImageTexture(0, render_targets[0].name(), 0, GL_FALSE, 0, GL_READ_ONLY, GL_RGBA32F);
@@ -872,20 +516,20 @@ int main(int, char**)
             tonemap_cs.set_uniform<int>("image_in", 0);
             tonemap_cs.set_uniform<int>("image_out", 1);
             tonemap_cs.set_uniform<float>("scale_constant", 1.0/pow(10.0, scale_constant));
-            tonemap_cs.set_uniform<float>("gamma", flame_def.gamma);
-            tonemap_cs.set_uniform<float>("brightness", flame_def.brightness);
-            tonemap_cs.set_uniform<float>("vibrancy", flame_def.vibrancy);
+            tonemap_cs.set_uniform<float>("gamma", flame_def->gamma);
+            tonemap_cs.set_uniform<float>("brightness", flame_def->brightness);
+            tonemap_cs.set_uniform<float>("vibrancy", flame_def->vibrancy);
             glDispatchCompute(target_dims[0]/8, target_dims[1]/8, 1);
             glMemoryBarrier(GL_ALL_BARRIER_BITS);
             glFinish();
         }
-        perf_timer_results["tonemap"] = perf_timer.time<timer::ns>();
+        //perf_timer_results["tonemap"] = perf_timer.time<timer::ns>();
 
-        glfwGetFramebufferSize(gl.window, &display_w, &display_h);
-        glViewport(0, 0, display_w, display_h);
+        //glfwGetFramebufferSize(gl.window, &display_w, &display_h);
+        //glViewport(0, 0, display_w, display_h);
         glClearColor(clear_color.x, clear_color.y, clear_color.z, clear_color.w);
         glClear(GL_COLOR_BUFFER_BIT);
-
+        
 
         /*glUseProgram(quad_vf.name());
         glActiveTexture(GL_TEXTURE0);
@@ -893,14 +537,14 @@ int main(int, char**)
         quad_vf.set_uniform<int>("tex", 0);
         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
         glUseProgram(0);*/
-
+        
         ImGui::Begin("Flame");
         ImGui::Image((void*)render_targets[1].name(), ImVec2{ float(image_dims[0]), float(image_dims[1]) });
         ImVec2 vMin = ImGui::GetWindowContentRegionMin();
         ImVec2 vMax = ImGui::GetWindowContentRegionMax();
-        std::cout << fmt::format("({},{})", vMax.x - vMin.x, vMax.y - vMin.y) << std::endl;
+        //std::cout << fmt::format("({},{})", vMax.x - vMin.x, vMax.y - vMin.y) << std::endl;
         ImGui::End();
-
+        /*
         auto total_time = perf_timer_total.time<timer::ns>();
         ImGui::Begin("Timing"); {
             #define SHOW_PERF_TIMER(name) ImGui::ProgressBar(perf_timer_results[name] / float(total_time), ImVec2(0.0f, 0.0f)); ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x); ImGui::Text(name)
@@ -954,7 +598,7 @@ int main(int, char**)
 
             ImGui::Text("XFORM %d: %.3f %.3f", i, expected * 100.0, actual * 100.0);
         }
-        ImGui::End();
+        ImGui::End();*/
         ImGui::Render();
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
    
