@@ -40,6 +40,8 @@ public:
     void bind() { glUseProgram(shader_); }
     void unbind() { glUseProgram(0); }
 
+    bool is_good() { return good_; }
+
 protected:
 
     static std::pair<bool, GLuint> compile_source(GLuint type, const std::string& src) {
@@ -92,6 +94,7 @@ protected:
     }
 
 	GLuint shader_;
+    bool good_;
 };
 
 class compute_shader : public shader_base {
@@ -100,12 +103,19 @@ public:
         auto [compiled, prog] = shader_base::compile_source(GL_COMPUTE_SHADER, src);
 
         if (!compiled) {
+            std::cout << src << std::endl;
             std::cout << "COMPUTE SHADER COMPILE ERROR:\n" << get_source_error(prog) << std::endl;
+            good_ = false;
+            return;
         }
 
         if (!link_shader(prog)) {
             std::cout << "COMPUTE SHADER LINK ERROR:\n" << get_link_error() << std::endl;
+            good_ = false;
+            return;
         }
+        good_ = true;
+
     }
 };
 

@@ -215,7 +215,7 @@ variations:
       pie_slices: {}
       pie_rotation: {}
       pie_thickness: {}
-    src: randf() * sincos($pie_rotation + 2.0 * PI * (trunc(randf() * $pie_slices + 0.5) + randf() * $pie_thickness)/$pie_slices)
+    result: randf() * sincos($pie_rotation + 2.0 * PI * (trunc(randf() * $pie_slices + 0.5) + randf() * $pie_thickness)/$pie_slices)
 
   ngon:
     param:
@@ -288,7 +288,69 @@ variations:
     src: |-
       float cross_s = $x * $x - $y * $y;
     result: $v * sqrt(1.0/(cross_s * cross_s + EPS))
+
+  disc2:
+    param:
+      disc2_rot: {}
+      disc2_twist: {}
+    src: |-
+      float disc2_timespi = $disc2_rot * PI;
+      vec2 disc2_addsc = sincos($disc2_twist);
+      disc2_addsc.y -= 1;
+      disc2_addsc *= 1 + $disc2_twist + (($disc2_twist > 2.0 * PI)? -2.0: 2.0) * PI;
+      vec2 disc2_tsc = sincos(disc2_timespi * ($x + $y));
+    result: vec2(disc2_tsc.x + disc2_addsc.y, disc2_tsc.y + disc2_addsc.x) * $a / PI;
+
+  super_shape:
+    param:
+      super_shape_n1: {}
+      super_shape_n2: {}
+      super_shape_n3: {}
+      super_shape_m: {}
+      super_shape_holes: {}
+      super_shape_rnd: {}
+    src: |-
+      vec2 super_shape_sc = sincos($super_shape_m * 0.25 * $phi + PI * 0.25);
+    result: $v * (mix($r, randf(), $super_shape_rnd) - $super_shape_holes) * pow(pow(abs(super_shape_sc.y), $super_shape_n2)+pow(abs(super_shape_sc.x), $super_shape_n3), -1.0 / $super_shape_n1) / $r
+
+  flower:
+    param:
+      flower_holes: {}
+      flower_petals: {}
+    result: $v * (randf() - $flower_holes) * cos($flower_petals * $phi) / $r;
+
+  conic:
+    param:
+      conic_holes: {}
+      conic_eccentricity: {}
+    result: $v * (randf() - $conic_holes) * $conic_eccentricity / (1 + $conic_eccentricity * $x / $r) / $r
+
+  parabola:
+    param:
+      parabola_height: {}
+      parabola_width: {}
+    result: vec2( $parabola_height * $sinr * $sinr * randf(), $parabola_width * $cosr * randf())
+
+  bent2:
+    param:
+      bent2_x: {}
+      bent2_y: {}
+    result: "vec2(($x < 0.0) $x * $bent2_x : $x, ($y < 0.0) $y * $bent2_y : $y)"
+
   # End normal variation work
+
+  coth:
+    src: |-
+      vec2 cothsc = sincos(2.0 * $y);
+      float cothsinh = sinh(2.0 * $x);
+      float cothcosh = cosh(2.0 * $x);
+      float cothden = 1.0/(cothcosh - cothsc.y);
+    result: cothden * vec2(cothsinh, cothsc.x)
+
+  sinh:
+    src: |-
+      vec2 sinhsc = sincos($y);
+    result: vec2( sinh($x) * sinhsc.y, cosh($x) * sinhsc.x)
 
   pre_blur:
     flags: [pre_xform]
@@ -308,18 +370,6 @@ variations:
 
   cylinder:
     result: vec2(sin($x), $y)
-
-  super_shape:
-    param:
-      super_shape_n1: {}
-      super_shape_n2: {}
-      super_shape_n3: {}
-      super_shape_m: {}
-      super_shape_holes: {}
-      super_shape_rnd: {}
-    src: |-
-      vec2 super_shape_sc = sincos($super_shape_m * 0.25 * $phi + PI * 0.25);
-    result: $v * (mix($r, randf(), $super_shape_rnd) - $super_shape_holes) * pow(pow(abs(super_shape_sc.y), $super_shape_n2)+pow(abs(super_shape_sc.x), $super_shape_n3), -1.0 / $super_shape_n1) / $r
 
 
 

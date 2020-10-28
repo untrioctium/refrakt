@@ -12,18 +12,20 @@ std::vector<std::uint32_t> create_shuffle_buffer(std::uint32_t size);
 void make_shuffle_buffers(std::uint32_t size, std::size_t count);
 std::vector<std::array<float,4>> make_sample_points(std::uint32_t count);
 
-void flame::do_common_init(const flame_compiler& fc)
+bool flame::do_common_init(const flame_compiler& fc)
 {
     make_shader_buffer_map();
 
     auto shader_src = replace_macro(read_file("shaders/flame.glsl"), "varsource", fc.compile_flame_xforms(*this));
-    shader_src = replace_macro(shader_src, "block_width", std::to_string(128));
+    shader_src = replace_macro(shader_src, "block_width", std::to_string(64));
     shader_src = replace_macro(shader_src, "final_xform_call", (final_xform) ? "result = dispatch(result.xyz, -1) * vec4(1.0, 1.0, 1.0, result.w);" : "");
 
     iterate_cs_ = std::make_unique<compute_shader>(shader_src);
     animate_cs_ = std::make_unique<compute_shader>(inja::render(read_file("shaders/templates/animate.tpl.glsl"), buffer_map_));
 
     palette_.update_all(palette.data());
+
+    return iterate_cs_->is_good() && animate_cs_->is_good();
 }
 
 void flame::make_shader_buffer_map()
@@ -170,6 +172,8 @@ std::unique_ptr<flame> flame::load_flame(const std::string& path, const flame_co
     f->vibrancy = flame_node.attribute("vibrancy").as_float();;
     f->size = parse_strings<unsigned int, 2>(std::string{ flame_node.attribute("size").value() }, [](auto& v) { return (unsigned int)std::stoi(v); });
 
+    bool is_bad = false;
+
     for (auto node : flame_node.children()) {
         std::string node_name = node.name();
         if (node_name == "xform" || node_name == "finalxform") {
@@ -186,7 +190,7 @@ std::unique_ptr<flame> flame::load_flame(const std::string& path, const flame_co
                 else if (vt.is_variation(name)) xform.variations[name] = attr.as_float();
                 else if (name == "coefs") xform.affine = parse_strings<float, 6>(std::string{ attr.value() }, [](auto& v) {return std::stof(v); });
                 else if (name == "post") xform.post = parse_strings<float, 6>(std::string{ attr.value() }, [](auto& v) {return std::stof(v); });
-                else { std::cout << "Unknown attribute " << name << " in flame " << path << std::endl; }
+                else { std::cout << "Unknown attribute " << name << " in flame " << path << std::endl; is_bad = true; }
             }
 
             /*for (auto motion : node.children("motion")) {
@@ -212,9 +216,10 @@ std::unique_ptr<flame> flame::load_flame(const std::string& path, const flame_co
         }
     }
 
-    f->do_common_init(vt);
-
-    return std::unique_ptr<flame>{ f };
+    if (!is_bad && f->do_common_init(vt)) {
+        return std::unique_ptr<flame>{ f };
+    }
+    else return nullptr;
 }
 
 void flame::warmup(std::size_t num_passes, float tss_width)
@@ -252,7 +257,7 @@ void flame::warmup(std::size_t num_passes, float tss_width)
     iterate_cs_->set_uniform<bool>("do_draw", false);
     iterate_cs_->set_uniform<unsigned int>("shuf_buf_idx_in", shuf_dist(generator));
     iterate_cs_->set_uniform<unsigned int>("shuf_buf_idx_out", shuf_dist(generator));
-    glDispatchCompute(swap_buffer_->size() / num_temporal_samples_ / 128, num_temporal_samples_, 1);
+    glDispatchCompute((swap_buffer_->size() / num_temporal_samples_) / 64, num_temporal_samples_, 1);
     glMemoryBarrier(GL_ALL_BARRIER_BITS);
     glFinish();
 
@@ -264,7 +269,7 @@ void flame::warmup(std::size_t num_passes, float tss_width)
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, names[!(i & 1)]);
         iterate_cs_->set_uniform<unsigned int>("shuf_buf_idx_in", shuf_dist(generator));
         iterate_cs_->set_uniform<unsigned int>("shuf_buf_idx_out", shuf_dist(generator));
-        glDispatchCompute(swap_buffer_->size() / num_temporal_samples_ / 128, num_temporal_samples_, 1);
+        glDispatchCompute((swap_buffer_->size() / num_temporal_samples_) / 64, num_temporal_samples_, 1);
         glMemoryBarrier(GL_ALL_BARRIER_BITS);
         glFinish();
     }
@@ -289,7 +294,7 @@ std::size_t flame::draw_to_bins(bin_t& bins, std::size_t bins_width, int num_ite
     glUseProgram(iterate_cs_->name());
     iterate_cs_->set_uniform<int>("total_params", buffer_map_["size"]);
     iterate_cs_->set_uniform<bool>("random_read", true);
-    iterate_cs_->set_uniform<bool>("random_write", false);
+    iterate_cs_->set_uniform<bool>("random_write", true);
     iterate_cs_->set_uniform<bool>("first_run", false);
     iterate_cs_->set_uniform<bool>("do_draw", true);
     iterate_cs_->set_uniform<glm::uvec2>("bin_dims", glm::uvec2(target_dims[0], target_dims[1]));
@@ -308,7 +313,8 @@ std::size_t flame::draw_to_bins(bin_t& bins, std::size_t bins_width, int num_ite
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, names[i & 1]);
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, names[!(i & 1)]);
         iterate_cs_->set_uniform<unsigned int>("shuf_buf_idx_in", shuf_dist(generator));
-        glDispatchCompute(swap_buffer_->size() / num_temporal_samples_ / 128, num_temporal_samples_, 1);
+        iterate_cs_->set_uniform<unsigned int>("shuf_buf_idx_out", shuf_dist(generator));
+        glDispatchCompute((swap_buffer_->size() / num_temporal_samples_) / 64, num_temporal_samples_, 1);
         glMemoryBarrier(GL_ALL_BARRIER_BITS);
         glFinish();
     }

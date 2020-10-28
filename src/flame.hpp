@@ -131,7 +131,7 @@ private:
         active_flames_.insert(this);
     };
 
-    void do_common_init(const flame_compiler& fc);
+    bool do_common_init(const flame_compiler& fc);
 
     friend class flame_compiler;
 

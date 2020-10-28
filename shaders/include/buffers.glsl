@@ -33,3 +33,8 @@ layout(std430, binding = 10) buffer flame_counters
 	uint flame_atomic_counters[];
 };
 
+layout(std430, binding = 3) buffer xform_counters
+{
+	uint xform_invoke_count[];
+};
+

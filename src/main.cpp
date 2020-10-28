@@ -191,7 +191,7 @@ int main(int, char**)
     std::uniform_real_distribution<float> dist(19232581.235235, 91212584.1241251);
 
     const std::size_t image_dims[2] = { 1920, 1080 };
-    const std::size_t supersampling = 2;
+    const std::size_t supersampling = 1;
     const std::size_t target_dims[2] = { image_dims[0] * supersampling, image_dims[1] * supersampling };
 
     // Our state
@@ -199,7 +199,7 @@ int main(int, char**)
     bool show_another_window = false;
     ImVec4 clear_color = ImVec4(0.0f, 0.0f, 0.0f, 1.00f);
 
-    flame::set_sim_parameters(1024 * 1024, 1024, 128);
+    flame::set_sim_parameters(512 * 512, 128, 1024);
 
     auto variations = flame_compiler{};
     auto flame_def = flame::load_flame("flames/electricsheep.247.11256.flam3", variations);
@@ -213,7 +213,7 @@ int main(int, char**)
     glBindVertexArray(vao);
 
     storage_buffer<std::array<float,4>> bins{ target_dims[0] * target_dims[1] };
-    glClearNamedBufferData(bins.name(), GL_RGBA32F, GL_RGBA, GL_FLOAT, nullptr);
+    bins.zero_out();//glClearNamedBufferData(bins.name(), GL_RGBA32F, GL_RGBA, GL_FLOAT, nullptr);
     //glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 8, bins.name());
 
     texture<float> render_targets[2] = { {target_dims[0], target_dims[1]}, {target_dims[0], target_dims[1]} };
@@ -253,6 +253,15 @@ int main(int, char**)
         }
     }
 
+    auto xform_atomic_counters = storage_buffer<unsigned int>(64);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, xform_atomic_counters.name());
+    //auto xform_atomic_init = std::vector<unsigned int>{64, 0};
+    std::vector<unsigned long long> running_xform_counts;
+    running_xform_counts.resize(64);
+
+    int warmup_passes = 16;
+    int drawing_passes = 128;
+
     // Main loop
     while (!glfwWindowShouldClose(gl.window))
     {
@@ -263,6 +272,7 @@ int main(int, char**)
         frame_timer.reset();
 
         //xform_atomic_counters.update_all(xform_atomic_init.data());
+        xform_atomic_counters.zero_out();
         //flame_atomic_counters.update_all(flame_stats_init.data());
         //auto shuf = shuf_path.begin();
 
@@ -278,8 +288,13 @@ int main(int, char**)
         ImGui::Begin("Load Flame");
         for (auto& path : avail_flames) {
             if (ImGui::Button(path.c_str())) {
-                flame_def = flame::load_flame("flames/" + path + ".flam3", variations);
-                needs_clear = true;
+                auto new_flame = flame::load_flame("flames/" + path + ".flam3", variations);
+                if (new_flame) {
+                    flame_def.swap(new_flame);
+                    bins.zero_out();
+                    running_xform_counts = std::vector<unsigned long long>(64, 0);
+                    accumulated = 0;
+                }
             }
         }
         ImGui::End();
@@ -304,31 +319,28 @@ int main(int, char**)
             ImGui::EndMainMenuBar();
         }
 
-        if(flame_def->needs_warmup() || needs_clear) flame_def->warmup(16, 1 / 60.0f);
-        flame_def->draw_to_bins(bins, target_dims[0], 64);
-
-        /*ImGui::Begin("Sim Configuration");
-        needs_clear |= ImGui::InputInt("Warmup Passes", &si.warmup_passes, 2, 2);
-        needs_clear |= ImGui::InputInt("Drawing Passes", &si.drawing_passes, 2, 2);
-        needs_clear |= ImGui::InputInt("Drawing ms limit", &si.abort_after_ms, 1, 1);
-        needs_clear |= ImGui::Checkbox("Use random xform selection", &si.use_random_xform_selection);
+        ImGui::Begin("Sim Configuration");
+        needs_clear |= ImGui::InputInt("Warmup Passes", &warmup_passes, 2, 2);
+        needs_clear |= ImGui::InputInt("Drawing Passes", &drawing_passes, 2, 2);
+        //needs_clear |= ImGui::InputInt("Drawing ms limit", &si.abort_after_ms, 1, 1);
+        //needs_clear |= ImGui::Checkbox("Use random xform selection", &si.use_random_xform_selection);
         needs_clear |= ImGui::DragFloat("Temporal Sample Width", &tss_width, .01, 0, .25);
         needs_clear |= ImGui::InputInt("Quality Target", (int*) &needed_quality, 10, 100);
         do_step = ImGui::Button("Advance 1/60s");
-        ImGui::End();*/
+        ImGui::End();
 
-        /*ImGui::Begin("Flame Info"); {
-            needs_clear |= ImGui::DragFloat("Scale", &flame_def.scale, 1, 1, 10000);
-            needs_clear |= ImGui::DragFloat2("Center", flame_def.center.data(), .01, -5, 5);
-            needs_clear |= ImGui::DragFloat("Rotate", &flame_def.rotate, 1.0, -360.0, 360.0);
+        ImGui::Begin("Flame Info"); {
+            needs_clear |= ImGui::DragFloat("Scale", &flame_def->scale, 1, 1, 10000);
+            needs_clear |= ImGui::DragFloat2("Center", flame_def->center.data(), .01, -5, 5);
+            needs_clear |= ImGui::DragFloat("Rotate", &flame_def->rotate, 1.0, -360.0, 360.0);
             needs_clear |= ImGui::Checkbox("Animate", &animate);
             ImGui::InputFloat("Scale Constant", &scale_constant, 1, 5);
             ImGui::Separator();
-            ImGui::DragInt("Estimator Radius", &flame_def.estimator_radius, 0.005f, 0, 20);
-            ImGui::DragInt("Estimator Min", &flame_def.estimator_min, 0.005f, 0, 20);
-            ImGui::DragFloat("Estimator Curve", &flame_def.estimator_curve, .001, 0, 1);
+            ImGui::DragInt("Estimator Radius", &flame_def->estimator_radius, 0.005f, 0, 20);
+            ImGui::DragInt("Estimator Min", &flame_def->estimator_min, 0.005f, 0, 20);
+            ImGui::DragFloat("Estimator Curve", &flame_def->estimator_curve, .001, 0, 1);
 
-            flame_def.for_each_xform([&](int idx, flame_xform& xform) {
+            flame_def->for_each_xform([&](int idx, flame_xform& xform) {
                 std::string hash = "##xform" + std::to_string(idx) + std::to_string((unsigned int)&xform);
                 if (ImGui::CollapsingHeader(("xform " + std::to_string(idx)).c_str())) {
                     needs_clear |= ImGui::DragFloat(("Weight" + hash).c_str(), &xform.weight, .001, -100, 100);
@@ -359,7 +371,7 @@ int main(int, char**)
  
             if (ImGui::CollapsingHeader("Palette")) {
                 for (int i = 0; i < 256; i++) {
-                    auto& c = flame_def.palette.at(i);
+                    auto& c = flame_def->palette.at(i);
                     ImGui::ColorEdit4(std::to_string(i).c_str(), c.data());
                 }
             }
@@ -368,15 +380,15 @@ int main(int, char**)
         float rotation = DEGREES_PER_SECOND * dt;
 
         //Do rotation
-        /*if(animate || advance_frame)
-            for (auto& x : flame_def.xforms) {
-                if (x.animate) x.affine = rotate_affine(x.affine, rotation);
+        if(animate || advance_frame)
+            for (auto& x : flame_def->xforms) {
+                if (x.animate) x.affine = flame::rotate_affine(x.affine, rotation);
                 needs_clear = true;
             }
 
         if (do_step) {
-            for (auto& x : flame_def.xforms) {
-                if (x.animate) x.affine = rotate_affine(x.affine, DEGREES_PER_SECOND/60.0);
+            for (auto& x : flame_def->xforms) {
+                if (x.animate) x.affine = flame::rotate_affine(x.affine, DEGREES_PER_SECOND/60.0);
                 needs_clear = true;
             }
             do_step = false;
@@ -388,23 +400,21 @@ int main(int, char**)
             for (auto& c : running_xform_counts) c = 0;
         }
 
-        fb.bind();
-        frame_buffer::attach(render_targets[0].name());
-        glClearColor(0, 0, 0, 0);
-        glClear(GL_COLOR_BUFFER_BIT);
-        glEnable(GL_PROGRAM_POINT_SIZE);
-        if (needs_clear) {
+        if (flame_def->needs_warmup() || needs_clear)
+        {
+            flame_def->warmup(warmup_passes, tss_width);
             bins.zero_out();
             needs_clear = false;
+            accumulated = 0;
         }
-        glEnable(GL_BLEND);
-        glBlendFunc(GL_ONE, GL_ONE);
-        glViewport(0, 0, target_dims[0], target_dims[1]);
+        auto binned = 0;
+        if(accumulated < needed_quality * target_dims[0] * target_dims[1])
+            binned = flame_def->draw_to_bins(bins, target_dims[0], drawing_passes);
 
         //cs.set_uniform<bool>("random_read", true);
         //cs.set_uniform<bool>("random_write", false);
 
-        auto win_min = glm::vec2(
+        /*auto win_min = glm::vec2(
             flame_def.center[0] - float(target_dims[0]) / flame_def.scale / 2.0,
             flame_def.center[1] - float(target_dims[1]) / flame_def.scale / 2.0);
 
@@ -539,10 +549,11 @@ int main(int, char**)
         glUseProgram(0);*/
         
         ImGui::Begin("Flame");
-        ImGui::Image((void*)render_targets[1].name(), ImVec2{ float(image_dims[0]), float(image_dims[1]) });
         ImVec2 vMin = ImGui::GetWindowContentRegionMin();
         ImVec2 vMax = ImGui::GetWindowContentRegionMax();
-        //std::cout << fmt::format("({},{})", vMax.x - vMin.x, vMax.y - vMin.y) << std::endl;
+        float width = vMax.x - vMin.x;
+        float height = width * float(image_dims[1]) / float(image_dims[0]);
+        ImGui::Image((void*)render_targets[1].name(), ImVec2{ width, height });
         ImGui::End();
         /*
         auto total_time = perf_timer_total.time<timer::ns>();
@@ -557,24 +568,23 @@ int main(int, char**)
             SHOW_PERF_TIMER("tonemap");
         }ImGui::End();
 
-        
+        */
 
-        auto total_binned = flame_atomic_counters.get_one(0);
-        accumulated += total_binned;
+        accumulated += binned;
 
         GLint total_mem_kb = 0;
         glGetIntegerv(GL_GPU_MEMORY_INFO_TOTAL_AVAILABLE_MEMORY_NVX, &total_mem_kb);
 
         GLint available_mem = 0;
         glGetIntegerv(GL_GPU_MEMORY_INFO_CURRENT_AVAILABLE_VIDMEM_NVX, &available_mem);
-
+        
         ImGui::Begin("Debug");
         ImGui::Text("FPS Avg: %f", 1.0 / fps_avg);
         ImGui::Text("Mem Avail: %.3fGB", available_mem / (1024.0 * 1024.0));
         ImGui::Text("Mem Used: %.3fGB", (total_mem_kb - available_mem)/(1024.0 * 1024.0));
         ImGui::Text("Parts per second: %.1fM", pps_final / 1'000'000.0f);
-        ImGui::Text("Parts per frame: %.1fM", float(si.drawing_passes)* si.num_points / 1'000'000.0f);
-        ImGui::Text("Binned this frame: %.1fM", total_binned / 1'000'000.0f);
+        ImGui::Text("Parts per frame: %.1fM", float(128)* 1024 / 1'000'000.0f);
+        ImGui::Text("Binned this frame: %.1fM", binned / 1'000'000.0f);
         ImGui::Text("Total binned this image: %.3fB", accumulated / 1'000'000'000.0f );
         ImGui::Text("Image Quality: %.2f%%", float(accumulated) / float(needed_quality * target_dims[0] * target_dims[1]) * 100.0);
         if (ImGui::Button("Screenshot")) {
@@ -584,24 +594,26 @@ int main(int, char**)
 
         float xform_sum = 0.0;
         unsigned long long total_hit = 0;
-        for (auto& xform : flame_def.xforms) xform_sum += xform.weight;
+        std::vector<unsigned int> current_xform_counts(64, 0);
+        for (auto& xform : flame_def->xforms) xform_sum += xform.weight;
 
-        for (int i = 0; i < flame_def.xforms.size(); i++) {
+        for (int i = 0; i < flame_def->xforms.size(); i++) {
             current_xform_counts[i] = xform_atomic_counters.get_one(i);
             running_xform_counts[i] += current_xform_counts[i];
             total_hit += running_xform_counts[i];
         }
 
-        for (int i = 0; i < flame_def.xforms.size(); i++) {
-            float expected = flame_def.xforms[i].weight / xform_sum;
+        for (int i = 0; i < flame_def->xforms.size(); i++) {
+            float expected = flame_def->xforms[i].weight / xform_sum;
             float actual = double(running_xform_counts[i]) / double(total_hit);
 
             ImGui::Text("XFORM %d: %.3f %.3f", i, expected * 100.0, actual * 100.0);
         }
-        ImGui::End();*/
+
+        ImGui::End();
         ImGui::Render();
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
-   
+        
 
         glfwSwapBuffers(gl.window);
     }

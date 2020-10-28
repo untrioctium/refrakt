@@ -18,9 +18,6 @@ uniform uvec2 bin_dims;
 uniform uint shuf_buf_idx_in;
 uniform uint shuf_buf_idx_out;
 
-uniform float cos_rot;
-uniform float sin_rot;
-
 uniform float ss_affine[6];
 
 shared int xid;
@@ -50,7 +47,9 @@ void main() {
 	uint i_idx = (random_read)? get_in_shuf_idx(): gl_GlobalInvocationID.x;
 	uint o_idx = (random_write)? get_out_shuf_idx(): gl_GlobalInvocationID.x;
 
-	vec4 part_state = pos_in[((!first_run)?gl_WorkGroupID.y: 0) * gl_WorkGroupSize.x * gl_NumWorkGroups.x + i_idx];
+	uint offset = ((first_run)? 0: (gl_WorkGroupID.y * gl_WorkGroupSize.x * gl_NumWorkGroups.x));
+	vec4 part_state = pos_in[offset + i_idx];
+	//if(first_run) part_state.xy += vec2(randf(), randf()) * .001;
 	vec4 result = dispatch(part_state.xyz, xid);
 
 	//if(badval(result.x) || badval(result.y)) result.xyw = vec3(vec2(randf(), randf()) * 2.0 - 1.0, 0.0);
@@ -67,7 +66,7 @@ void main() {
 		if( coords.x >= 0 && coords.y >= 0 && coords.x < bin_dims.x && coords.y < bin_dims.y && result.w > 0 ) {
 			// 100% not thread safe in any manner
 			// it just werks though? possibly because only one block is ever executing at a time
-			bins[coords.y * bin_dims.x + coords.x] += vec4(palette[min(255, uint(ceil(result.z * 255.0)))].rgb, result.w);
+			bins[(bin_dims.y - coords.y - 1) * bin_dims.x + coords.x] += vec4(palette[min(255, uint(ceil(result.z * 255.0)))].rgb, result.w);
 			atomicAdd(flame_atomic_counters[0], 1);
 		}
 	}
