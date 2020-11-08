@@ -234,7 +234,7 @@ void flame::warmup(std::size_t num_passes, float tss_width)
 
     needs_update = false;
     if (!local_buffer_) local_buffer_ = std::make_unique<pos_buffer_t>(swap_buffer_->size());
-    if (!inflated_buffer_) inflated_buffer_ = std::make_unique<storage_buffer<float>>(buffer_map_["size"] * num_temporal_samples_);
+    if (!inflated_buffer_) inflated_buffer_ = std::make_unique<storage_buffer<float>>(int(buffer_map_["size"]) * num_temporal_samples_);
 
     copy_flame_data_to_buffer();
     glMemoryBarrier(GL_ALL_BARRIER_BITS);

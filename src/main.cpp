@@ -2,7 +2,7 @@
 #include <imgui_impl_glfw.h>
 #include <imgui_impl_opengl3.h>
 #include <stdio.h>
-#include <GL/glew.h>    
+#include <glad/glad.h>
 #include <GLFW/glfw3.h>
 #include <random>
 
@@ -152,7 +152,7 @@ std::pair<gl_state, int> init_gl(int w, int h, bool fullscreen) {
     glfwMakeContextCurrent(rs.window);
     glfwSwapInterval(1); // Enable vsync
 
-    if (glewInit() != GLEW_OK) return { rs, 3 };
+    if (!gladLoadGL()) return { rs, 3 };
 
     // Setup Dear ImGui context
     IMGUI_CHECKVERSION();
@@ -184,6 +184,7 @@ int main(int, char**)
 
     if (error) {
         std::cout << "Render init exited with code: " << error << std::endl;
+        return error;
     }
 
     std::random_device rd;
@@ -342,7 +343,7 @@ int main(int, char**)
             ImGui::DragFloat("Estimator Curve", &flame_def->estimator_curve, .001, 0, 1);
 
             flame_def->for_each_xform([&](int idx, flame_xform& xform) {
-                std::string hash = "##xform" + std::to_string(idx) + std::to_string((unsigned int)&xform);
+                std::string hash = "##xform" + std::to_string(idx) + std::to_string((std::intptr_t)&xform);
                 if (ImGui::CollapsingHeader(("xform " + std::to_string(idx)).c_str())) {
                     needs_clear |= ImGui::DragFloat(("Weight" + hash).c_str(), &xform.weight, .001, -100, 100);
                     needs_clear |= ImGui::DragFloat(("Color" + hash).c_str(), &xform.color, .0001, 0, 1);
@@ -572,10 +573,10 @@ int main(int, char**)
         accumulated += binned;
 
         GLint total_mem_kb = 0;
-        glGetIntegerv(GL_GPU_MEMORY_INFO_TOTAL_AVAILABLE_MEMORY_NVX, &total_mem_kb);
+        //glGetIntegerv(GL_GPU_MEMORY_INFO_TOTAL_AVAILABLE_MEMORY_NVX, &total_mem_kb);
 
         GLint available_mem = 0;
-        glGetIntegerv(GL_GPU_MEMORY_INFO_CURRENT_AVAILABLE_VIDMEM_NVX, &available_mem);
+        //glGetIntegerv(GL_GPU_MEMORY_INFO_CURRENT_AVAILABLE_VIDMEM_NVX, &available_mem);
         
         ImGui::Begin("Debug");
         ImGui::Text("FPS Avg: %f", 1.0 / fps_avg);

@@ -1,6 +1,6 @@
 #pragma once
 
-#include <GL/glew.h>
+#include <glad/glad.h>
 
 template<typename DataType>
 class storage_buffer

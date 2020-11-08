@@ -1,12 +1,19 @@
 #include <yaml-cpp/yaml.h>
 #include <regex>
 #include <stack>
-#include <boost/algorithm/string/replace.hpp>
-#include <boost/algorithm/string.hpp>
 #include <fmt/core.h>
 #include <inja/inja.hpp>
 #include "util.hpp"
 #include "variation_table.hpp"
+
+std::string replace_all(std::string str, const std::string& from, const std::string& to) {
+    size_t start_pos = 0;
+    while((start_pos = str.find(from, start_pos)) != std::string::npos) {
+        str.replace(start_pos, from.length(), to);
+        start_pos += to.length(); // Handles case where 'to' is a substring of 'from'
+    }
+    return str;
+}
 
 using optimizer_pred_t = std::function<bool(const flame_xform&, const flame_compiler&)>;
 using optimizer_t = std::function<std::pair<bool, std::string>(const flame_xform&, const nlohmann::json&, const flame_compiler&)>;
@@ -150,8 +157,8 @@ auto& get_optimizers() {
                     resolve_post(xform_result, xmap);
                 }
 
-                boost::replace_all(xform_result, "\n", "\n\t");
-                boost::erase_all(xform_result, "$");
+                replace_all(xform_result, "\n", "\n\t");
+                replace_all(xform_result, "$", "");
 
                 return {false, xform_result}; 
             }
@@ -252,7 +259,7 @@ std::string flame_compiler::compile_flame_xforms(const flame& f) const
 
     std::string xid_func = inja::render(read_file("shaders/templates/xform_select.tpl.glsl"), buf_map);
 
-    boost::replace_all(disp_func, "\n", "\n\t");
+    replace_all(disp_func, "\n", "\n\t");
     disp_func += "\n}";
     return compiled + xid_func + disp_func;
 }
