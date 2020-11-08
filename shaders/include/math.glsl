@@ -1,8 +1,14 @@
 const float PI = 3.141592653589793;
+const float PI_2 = PI / 2.0;
+
 const float EPS = (1e-10);
 
 vec2 sincos(float v) {
 	return vec2(sin(v), cos(v));
+}
+
+vec2 sinhcosh(float v) {
+	return vec2(sinh(v), cosh(v));
 }
 
 float mod2(float x, float y) {

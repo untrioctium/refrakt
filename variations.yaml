@@ -7,12 +7,6 @@ common:
   cosa: $y / $r
   sinr: sin($r)
   cosr: cos($r)
-
-  # [0,1] float depending on this thread's position in the
-  # work group. essentially random from the perspective of
-  # the particles given that the buffers are shuffled, but
-  # do not expect any more than a precision of 1/block_size.
-  # useful for making 50/50 splits without branching (see julia)
   lr: float(gl_LocalInvocationID.x)/float(gl_WorkGroupSize.x - 1)
 
 variations:
@@ -64,10 +58,8 @@ variations:
     result: vec2(m0 + m1, m0 - m1)
 
   julia:
-    # round($lr) * PI means that half of the threads in
-    # this block will pick the first branch (0) and the other
-    # half the second (PI). quicker than a if, ternary, or randf
-    result: "sqrt($r) * sincos(0.5 * $a + round($lr) * PI).yx"
+    # round(randf()) means no branching
+    result: "sqrt($r) * sincos(0.5 * $a + round(randf()) * PI).yx"
 
   bent:
     result: |-
@@ -161,7 +153,7 @@ variations:
     result: 2.0 / ($r + 1.0) * ($v)
 
   bubble:
-    result: ($v)/(0.25 * $rsq + 1.0)
+    result: ($v)/fma($rsq, 0.25, 1.0)
 
   perspective:
     param:
@@ -178,18 +170,25 @@ variations:
     param:
       julian_power: {}
       julian_dist: {}
-    result: pow($rsq, $julian_dist / $julian_power / 2.0) * sincos(($phi + 2.0 * PI * trunc(abs($julian_power) * randf())) / $julian_power).yx
+    src: |-
+      int julian_t_rnd = int(trunc(abs($julian_power) * randf()));
+    result: |-
+      pow($r, $julian_dist / $julian_power) 
+      * sincos(
+          ($phi + 2.0 * PI * float(julian_t_rnd)) 
+          / $julian_power
+      ).yx
 
   juliascope:
     param:
       juliascope_power: {}
       juliascope_dist: {}
     src: |-
-      int t_rnd = int(trunc(abs($juliascope_power) * randf()));
+      int juliascope_t_rnd = int(trunc(abs($juliascope_power) * randf()));
     result: |-
-      pow($rsq, $juliascope_dist / $juliascope_power / 2.0)
+      pow($r, $juliascope_dist / $juliascope_power)
       * sincos(
-            (2 * PI * float(t_rnd) + (((t_rnd & 1) == 0)? 1: -1) * $phi)
+            (2 * PI * float(juliascope_t_rnd) + (((juliascope_t_rnd & 1) == 0)? 1: -1) * $phi)
             / $juliascope_power
         ).yx
 
@@ -337,15 +336,142 @@ variations:
       bent2_y: {}
     result: "vec2(($x < 0.0) $x * $bent2_x : $x, ($y < 0.0) $y * $bent2_y : $y)"
 
+  bipolar:
+    param:
+      bipolar_shift: {}
+    src: |-
+      float bipolar_t = $rsq + 1.0;
+      float bipolar_x2 = 2.0 * $x;
+      float bipolar_ps = -PI_2 * $bipolar_shift;
+      float bipolar_y = 0.5 * atan(2.0 * $y, $rsq - 1.0) + bipolar_ps;
+      if( bipolar_y > PI_2 ) bipolar_y = -PI_2 + mod2(bipolar_y + PI_2, PI);
+      else if(y < -PI_2) y = PI_2 - mod2(PI_2 - bipolar_y, PI);
+    result: vec2(0.25 * 2.0 / PI * log((bipolar_t + bipolar_x2)/(bipolar_t - bipolar_x2)), 2.0 / PI * $y)
+
+  boarders:
+    src: |-
+      float boarders_rx = round($x);
+      float boarders_ry = round($y);
+      float boarders_ox = $x - boarders_rx;
+      float boarders_oy = $y - boarders_ry;
+      vec2 boarders_result;
+      if(randf() >= 0.75) {
+            boarders_result = vec2(
+                boarders_ox * 0.5 + boarders_rx, 
+                boarders_oy * 0.5 + boarders_ry
+            );
+      } else {
+            if(abs(boarders_ox) >= abs(boarders_oy)) {
+                if(boarders_ox > 0.0) {
+                    boarders_result = vec2(
+                        boarders_ox * 0.5 + boarders_rx + 0.25, 
+                        boarders_oy * 0.5 + boarders_ry + 0.25 * boarders_oy / boarders_ox
+                    );
+                } else {
+                    boarders_result = vec2(
+                        boarders_ox * 0.5 + boarders_rx - 0.25, 
+                        boarders_oy * 0.5 + boarders_ry - 0.25 * boarders_oy / boarders_ox
+                    );
+                }
+            } else {
+                if(boarders_oy > 0.0) {
+                    boarders_result = vec2(
+                        boarders_ox * 0.5 + boarders_rx + 0.25 * boarders_ox / boarders_oy,
+                        boarders_oy * 0.5 + boarders_ry + 0.25 
+                    );
+                } else {
+                    boarders_result = vec2(
+                        boarders_ox * 0.5 + boarders_rx - 0.25 * boarders_ox / boarders_oy,
+                        boarders_oy * 0.5 + boarders_ry - 0.25 
+                    );
+                }
+            }
+      }
+    result: boarders_result
+
+  butterfly:
+    src: |-
+      float butterfly_y2 = 2.0 * $y;
+    result: 1.3029400317411197908970256609023 * sqrt(abs($x * $y)/(EPS + $x * $x + butterfly_y2 * butterfly_y2)) * vec2($x, butterfly_y2)
+
+  cell:
+    param:
+      cell_size: {}
+    src: |-
+      float inv_cell_size = 1.0 / $cell_size;
+      ivec2 cell_xy = ivec2(int(floor($x * inv_cell_size)), int(floor($y * inv_cell_size)));
+      vec2 cell_dxy = vec2($x - cell_xy.x * $cell_size, $y - cell_xy.y * $cell_size);
+      if(cell_xy.y >= 0) {
+            if(cell_xy.x >= 0) cell.xy *= 2;
+            else cell_xy = ivec2( -(cell_xy.x * 2 + 1), cell_xy.y * 2);
+      } else
+            if(cell.xy.x >= 0) cell_xy = ivec2(cell_xy.x * 2, -(cell_xy.y * 2 + 1));
+            else cell_xy = ivec2(-(cell_xy.x * 2 + 1), -(cell_xy.y * 2 + 1));
+      }
+    result: vec2(cell_dxy.x + cell_xy.x * $cell_size, cell_dxy.y + cell_xy.y * $cell_size)
+
+  cpow:
+    param:
+      cpow_power: {}
+      cpow_r: {}
+      cpow_i: {}
+    src: |-
+      float cpow_lnr = 0.5 * log($rsq);
+      float cpow_va = 2.0 * PI / $cpow_power;
+      float cpow_vc = $cpow_r / $cpow_power;
+      float cpow_cd = $cpow_i / $cpow_power;
+    result: exp(cpow_vc * cpow_lnr - cpow_vd * $phi) * sincos(cpow_vc * $phi + cpow_vd * cpow_lnr + cpow_va * floor($cpow_power * randf())).yx
+
+  curve:
+    param:
+      curve_xlength: {}
+      curve_ylength: {}
+      curve_xamp: {}
+      curve_yamp: {}
+    result: |-
+        vec2(
+            $x + $curve_xamp * exp(-$y * $y / max($curve_xlength * $curve_xlength, 1E-20)),
+            $y + $curve_yamp * exp(-$x * $x / max($curve_ylength * $curve_ylength, 1E-20))
+        )
+
+  edisc:
+    src: |-
+      float edisc_tmp = $rsq + 1.0;
+      float edisc_tmp2 = 2.0 * $x;
+      float edisc_xmax = (sqrt(edisc_tmp + edisc_tmp2) + sqrt(edisc_tmp + edisc_tmp2)) * 0.5;
+      float edisc_a2 = -acos($x / edisc_xmax);
+      vec2 edisc_vsc = sincos(log(edisc_xmax + sqrt(edisc_xmx - 1.0)));
+      vec2 edisc_hsc = vec2(sinh(edisc_a2), cosh(edisc_a2));
+      if($y > 0.0) edisc_vsc.x *= -1.0;
+    result: vec2(edisc_hsc.y * edisc_vsc.y, edisc_hsc.x * edisc_vsc.x) / 11.57034632
+
   # End normal variation work
 
-  coth:
+  foci:
     src: |-
-      vec2 cothsc = sincos(2.0 * $y);
-      float cothsinh = sinh(2.0 * $x);
-      float cothcosh = cosh(2.0 * $x);
-      float cothden = 1.0/(cothcosh - cothsc.y);
-    result: cothden * vec2(cothsinh, cothsc.x)
+      float foci_expx = exp($x) * 0.5;
+      float foci_expnx = 0.25 / foci_expx;
+      vec2 foci_sc = sincos($y);
+    result: vec2(foci_expx - foci_expnx, foci_sc.x) / (foci_expx + foci_expnx - foci_sc.y)
+
+  oscope:
+
+  loonie:
+    src: |-
+      float loonie_w2 = $weight * $weight;
+    result: "$v * (( $rsq < loonie_w2)? sqrt(loonie_w2/$rsq - 1.0): 1.0)"
+
+  exp:
+    result: exp($x) * sincos($y).yx
+
+  log:
+    result: vec2(0.5 * log($rsq), $phi)
+
+  sin:
+    result: sincos($x) * sinhcosh($y).yx
+
+  cos:
+    result: sincos($x).yx * sinhcosh($y).yx
 
   sinh:
     src: |-
@@ -371,6 +497,55 @@ variations:
   cylinder:
     result: vec2(sin($x), $y)
 
+  coth:
+    src: |-
+      vec2 cothsc = sincos(2.0 * $y);
+      float cothsinh = sinh(2.0 * $x);
+      float cothcosh = cosh(2.0 * $x);
+      float cothden = 1.0/(cothcosh - cothsc.y);
+    result: cothden * vec2(cothsinh, cothsc.x)f
 
+  auger:
+    param:
+      auger_freq: {}
+      auger_scale: {}
+      auger_sym: {}
+      auger_weight: {}
+    src: |-
+      float auger_s = sin($x * $auger_freq);
+      float auger_t = sin($y * $auger_freq);
+      float auger_dy = $y + $auger_weight * ($auger_scale * auger_s / 2.0 + abs($y) * auger_s);
+      float auger_dx = $x + $auger_weight * ($auger_scale * auger_t / 2.0 + abs($x) * auger_t);
+    result: vec2($x + $auger_sym * (auger_dx - $x), auger_dy)
 
+  flux:
+    param:
+      flux_spread: {}
+    src: |-
+      float flux_xpw = $x + $weight;
+      float flux_xmw = $x - $weight;
+    result: |-
+        (2.0 + $flux_spread) 
+        * sqrt( sqrt( $y * $y + flux_xpw * flux_xpw) / sqrt( $y * $y + flux_xmw * flux_xmw) )
+        * sincos((atan($y, flux_xmw) - atan($y, flux_xpw)) * 0.5).yx
 
+  mobius:
+    param:
+      mobius_re_a: {}
+      mobius_re_b: {}
+      mobius_re_c: {}
+      mobius_re_d: {}
+      mobius_im_a: {}
+      mobius_im_b: {}
+      mobius_im_c: {}
+      mobius_im_d: {}
+    src: |-
+      float mobius_re_u = $mobius_re_a * $x - $mobius_im_a * $y + $mobius_re_b;
+      float mobius_im_u = $mobius_re_a * $y + $mobius_im_a * $x + $mobius_im_b;
+      float mobius_re_v = $mobius_re_c * $x - $mobius_im_c * $y + $mobius_re_d;
+      float mobius_im_v = $mobius_re_c * $y + $mobius_im_c * $x + $mobius_im_d;
+    result: |-
+      vec2(
+        mobius_re_u * mobius_re_v + mobius_im_u * mobius_im_v,
+        mobius_im_u * mobius_re_v - mobius_re_u * mobius_im_v
+      ) / (mobius_re_v * mobius_re_v + mobius_im_v * mobius_im_v)

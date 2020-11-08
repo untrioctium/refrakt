@@ -12,16 +12,18 @@ std::vector<std::uint32_t> create_shuffle_buffer(std::uint32_t size);
 void make_shuffle_buffers(std::uint32_t size, std::size_t count);
 std::vector<std::array<float,4>> make_sample_points(std::uint32_t count);
 
+#define BLOCK_WIDTH 32
+
 bool flame::do_common_init(const flame_compiler& fc)
 {
     make_shader_buffer_map();
 
     auto shader_src = replace_macro(read_file("shaders/flame.glsl"), "varsource", fc.compile_flame_xforms(*this));
-    shader_src = replace_macro(shader_src, "block_width", std::to_string(64));
+    shader_src = replace_macro(shader_src, "block_width", std::to_string(BLOCK_WIDTH));
     shader_src = replace_macro(shader_src, "final_xform_call", (final_xform) ? "result = dispatch(result.xyz, -1) * vec4(1.0, 1.0, 1.0, result.w);" : "");
 
     iterate_cs_ = std::make_unique<compute_shader>(shader_src);
-    animate_cs_ = std::make_unique<compute_shader>(inja::render(read_file("shaders/templates/animate.tpl.glsl"), buffer_map_));
+    reset_animation();
 
     palette_.update_all(palette.data());
 
@@ -38,7 +40,6 @@ void flame::make_shader_buffer_map()
         nlohmann::json xform_map = nlohmann::json::object();
         int start = counter;
         xform_map["meta"]["start"] = start;
-        xform_map["meta"]["animated"] = xform.animate;
         xform_map["weight"] = counter++;
 
         xform_map["affine"] = std::vector{ counter++, counter++, counter++, counter++, counter++, counter++ };
@@ -50,6 +51,7 @@ void flame::make_shader_buffer_map()
         xform_map["color"] = counter++;
         xform_map["color_speed"] = counter++;
         xform_map["opacity"] = counter++;
+        xform_map["rotation_frequency"] = counter++;
 
         xform_map["meta"]["end"] = counter - 1;
         xform_map["meta"]["size"] = counter - start;
@@ -85,6 +87,7 @@ void flame::copy_flame_data_to_buffer()
         buf[xmap["color"]] = xform.color;
         buf[xmap["opacity"]] = xform.opacity;
         buf[xmap["color_speed"]] = xform.color_speed;
+        buf[xmap["rotation_frequency"]] = xform.rotation_frequency;
     };
 
     for (int i = 0; i < this->xforms.size(); i++) {
@@ -184,12 +187,12 @@ std::unique_ptr<flame> flame::load_flame(const std::string& path, const flame_co
                 if (name == "weight") xform.weight = attr.as_float();
                 else if (name == "color") xform.color = attr.as_float();
                 else if (name == "color_speed") xform.color_speed = attr.as_float();
-                else if (name == "animate") xform.animate = attr.as_int() == 1;
+                else if (name == "animate") xform.rotation_frequency = (attr.as_float() > 0 && node_name != "final_xform") ? 1.0: 0.0;
                 else if (name == "opacity") xform.opacity = attr.as_float();
                 else if (vt.is_param(name)) xform.var_param[name] = attr.as_float();
                 else if (vt.is_variation(name)) xform.variations[name] = attr.as_float();
-                else if (name == "coefs") xform.affine = parse_strings<float, 6>(std::string{ attr.value() }, [](auto& v) {return std::stof(v); });
-                else if (name == "post") xform.post = parse_strings<float, 6>(std::string{ attr.value() }, [](auto& v) {return std::stof(v); });
+                else if (name == "coefs") xform.affine = parse_strings<float, 6>(std::string{ attr.value() }, [](auto& v) {return (float) std::stod(v); });
+                else if (name == "post") xform.post = parse_strings<float, 6>(std::string{ attr.value() }, [](auto& v) {return (float) std::stod(v); });
                 else { std::cout << "Unknown attribute " << name << " in flame " << path << std::endl; is_bad = true; }
             }
 
@@ -257,7 +260,7 @@ void flame::warmup(std::size_t num_passes, float tss_width)
     iterate_cs_->set_uniform<bool>("do_draw", false);
     iterate_cs_->set_uniform<unsigned int>("shuf_buf_idx_in", shuf_dist(generator));
     iterate_cs_->set_uniform<unsigned int>("shuf_buf_idx_out", shuf_dist(generator));
-    glDispatchCompute((swap_buffer_->size() / num_temporal_samples_) / 64, num_temporal_samples_, 1);
+    glDispatchCompute((swap_buffer_->size() / num_temporal_samples_) / BLOCK_WIDTH, num_temporal_samples_, 1);
     glMemoryBarrier(GL_ALL_BARRIER_BITS);
     glFinish();
 
@@ -269,7 +272,7 @@ void flame::warmup(std::size_t num_passes, float tss_width)
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, names[!(i & 1)]);
         iterate_cs_->set_uniform<unsigned int>("shuf_buf_idx_in", shuf_dist(generator));
         iterate_cs_->set_uniform<unsigned int>("shuf_buf_idx_out", shuf_dist(generator));
-        glDispatchCompute((swap_buffer_->size() / num_temporal_samples_) / 64, num_temporal_samples_, 1);
+        glDispatchCompute((swap_buffer_->size() / num_temporal_samples_) / BLOCK_WIDTH, num_temporal_samples_, 1);
         glMemoryBarrier(GL_ALL_BARRIER_BITS);
         glFinish();
     }
@@ -314,10 +317,16 @@ std::size_t flame::draw_to_bins(bin_t& bins, std::size_t bins_width, int num_ite
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, names[!(i & 1)]);
         iterate_cs_->set_uniform<unsigned int>("shuf_buf_idx_in", shuf_dist(generator));
         iterate_cs_->set_uniform<unsigned int>("shuf_buf_idx_out", shuf_dist(generator));
-        glDispatchCompute((swap_buffer_->size() / num_temporal_samples_) / 64, num_temporal_samples_, 1);
+        glDispatchCompute((swap_buffer_->size() / num_temporal_samples_) / BLOCK_WIDTH, num_temporal_samples_, 1);
         glMemoryBarrier(GL_ALL_BARRIER_BITS);
         glFinish();
     }
 
     return std::size_t{ counters_.get_one(0) };
+}
+
+void flame::reset_animation()
+{
+    animate_cs_ = std::make_unique<compute_shader>(inja::render(read_file("shaders/templates/animate.tpl.glsl"), buffer_map_));
+    needs_update = true;
 }

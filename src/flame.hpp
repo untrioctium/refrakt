@@ -30,7 +30,7 @@ struct flame_xform {
     float color;
     float color_speed;
 
-    bool animate;
+    float rotation_frequency;
     float opacity;
 
     std::map<std::string, motion_info> motion;
@@ -92,6 +92,8 @@ struct flame {
         active_flames_.erase(this);
     }
 
+    void reset_animation();
+
     static flame_xform::affine_t rotate_affine(const flame_xform::affine_t& a, float deg) {
         float rad = 0.01745329251f * deg;
         float sino = sinf(rad);
@@ -123,6 +125,10 @@ struct flame {
         ret[4] = ret[0] * t[0] + ret[2] * t[1] + a[4];
         ret[5] = ret[1] * t[0] + ret[3] * t[1] + a[5];
         return ret;
+    }
+
+    void print_debug_info() {
+        std::cout << buffer_map_.dump(1) << std::endl;
     }
 
 private:

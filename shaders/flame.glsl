@@ -9,6 +9,7 @@ $include_math
 
 uniform bool random_read; // use the shuffle buffer to read
 uniform bool random_write; // use the shuffle buffer to write
+uniform int num_shuf_bufs = 1024;
 uniform bool first_run;
 uniform int total_params;
 
@@ -21,6 +22,8 @@ uniform uint shuf_buf_idx_out;
 uniform float ss_affine[6];
 
 shared int xid;
+shared int shuf_in;
+shared int shuf_out;
 shared float fp[1024];
 
 $varsource

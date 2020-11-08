@@ -234,7 +234,7 @@ std::string flame_compiler::compile_flame_xforms(const flame& f) const
         std::string dispatch_invoke = 
             fmt::format("return vec4({}, mix(((first_run)? randf(): v.z), {}, {}), {});\n", (inlined)? xform_src: "result", make_param_str(xform_map["color"]),make_param_str(xform_map["color_speed"]), make_param_str(xform_map["opacity"]));
         if (!inlined) dispatch_invoke = xform_src + dispatch_invoke;
-        if(i != -1) dispatch_invoke = fmt::format("atomicAdd(xform_invoke_count[{}], 1);\n", i) + dispatch_invoke;
+        //if(i != -1) dispatch_invoke = fmt::format("atomicAdd(xform_invoke_count[{}], 1);\n", i) + dispatch_invoke;
         // append to the dispatch function
         if (i + 1 == f.xforms.size()) {
             disp_func += "default: {\n" + dispatch_invoke + "\n}}\n";

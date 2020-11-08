@@ -190,8 +190,8 @@ int main(int, char**)
     std::mt19937 generator{rd()};
     std::uniform_real_distribution<float> dist(19232581.235235, 91212584.1241251);
 
-    const std::size_t image_dims[2] = { 1920, 1080 };
-    const std::size_t supersampling = 1;
+    const std::size_t image_dims[2] = { 640, 360 };
+    const std::size_t supersampling = 2;
     const std::size_t target_dims[2] = { image_dims[0] * supersampling, image_dims[1] * supersampling };
 
     // Our state
@@ -199,7 +199,7 @@ int main(int, char**)
     bool show_another_window = false;
     ImVec4 clear_color = ImVec4(0.0f, 0.0f, 0.0f, 1.00f);
 
-    flame::set_sim_parameters(512 * 512, 128, 1024);
+    flame::set_sim_parameters(1024 * 1024, 1024, 1024);
 
     auto variations = flame_compiler{};
     auto flame_def = flame::load_flame("flames/electricsheep.247.11256.flam3", variations);
@@ -291,6 +291,7 @@ int main(int, char**)
                 auto new_flame = flame::load_flame("flames/" + path + ".flam3", variations);
                 if (new_flame) {
                     flame_def.swap(new_flame);
+                    flame_def->print_debug_info();
                     bins.zero_out();
                     running_xform_counts = std::vector<unsigned long long>(64, 0);
                     accumulated = 0;
@@ -347,6 +348,7 @@ int main(int, char**)
                     needs_clear |= ImGui::DragFloat(("Color" + hash).c_str(), &xform.color, .0001, 0, 1);
                     needs_clear |= ImGui::DragFloat(("Color Speed" + hash).c_str(), & xform.color_speed, .0001, 0, 1);
                     needs_clear |= ImGui::DragFloat(("Opacity" + hash).c_str(), &xform.opacity, .0001, 0, 1);
+                    needs_clear |= ImGui::DragFloat(("Rotation Frequency" + hash).c_str(), &xform.rotation_frequency, .01f, 0.0f, 5.0f);
                     ImGui::Separator();
                     needs_clear |= ImGui::DragFloat3(("X Affine (a,b,c)" + hash).c_str(), xform.affine.data(), .001, -3, 3);
                     needs_clear |= ImGui::DragFloat3(("Y Affine (d,e,f)" + hash).c_str(), xform.affine.data() + 3, .001, -3, 3);
@@ -380,18 +382,15 @@ int main(int, char**)
         float rotation = DEGREES_PER_SECOND * dt;
 
         //Do rotation
-        if(animate || advance_frame)
+        if (animate || advance_frame) {
             for (auto& x : flame_def->xforms) {
-                if (x.animate) x.affine = flame::rotate_affine(x.affine, rotation);
-                needs_clear = true;
+                if (x.rotation_frequency != 0.0) x.affine = flame::rotate_affine(x.affine, rotation * x.rotation_frequency);
             }
-
-        if (do_step) {
-            for (auto& x : flame_def->xforms) {
-                if (x.animate) x.affine = flame::rotate_affine(x.affine, DEGREES_PER_SECOND/60.0);
-                needs_clear = true;
+            if (flame_def->final_xform) {
+                auto& fx = flame_def->final_xform.value();
+                if(fx.rotation_frequency != 0.0) fx.affine = flame::rotate_affine(fx.affine, rotation * fx.rotation_frequency);
             }
-            do_step = false;
+            needs_clear = true;
         }
 
         if (needs_clear) {
