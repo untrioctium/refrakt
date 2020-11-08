@@ -157,8 +157,8 @@ auto& get_optimizers() {
                     resolve_post(xform_result, xmap);
                 }
 
-                replace_all(xform_result, "\n", "\n\t");
-                replace_all(xform_result, "$", "");
+                xform_result = replace_all(xform_result, "\n", "\n\t");
+                xform_result = replace_all(xform_result, "$", "");
 
                 return {false, xform_result}; 
             }
@@ -259,7 +259,7 @@ std::string flame_compiler::compile_flame_xforms(const flame& f) const
 
     std::string xid_func = inja::render(read_file("shaders/templates/xform_select.tpl.glsl"), buf_map);
 
-    replace_all(disp_func, "\n", "\n\t");
+    disp_func = replace_all(disp_func, "\n", "\n\t");
     disp_func += "\n}";
     return compiled + xid_func + disp_func;
 }

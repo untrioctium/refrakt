@@ -73,6 +73,7 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(xxhash)
 file(GLOB XHASH_SOURCES ${xxhash_SOURCE_DIR}/*.c)
 list(REMOVE_ITEM XHASH_SOURCES ${xxhash_SOURCE_DIR}/xxhsum.c)
+list(REMOVE_ITEM XHASH_SOURCES ${xxhash_SOURCE_DIR}/xxh_x86dispatch.c)
 
 #FetchContent_Declare(
 #  json
@@ -103,6 +104,7 @@ file(GLOB IMGUI_SOURCES
 file(GLOB REFRAKT_SOURCES src/*.cpp)
 
 add_executable(refrakt ${REFRAKT_SOURCES} ${XHASH_SOURCES} ${IMGUI_SOURCES})
+set_target_properties(refrakt PROPERTIES VS_DEBUGGER_WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 target_link_libraries(refrakt PRIVATE glfw)
 target_link_libraries(refrakt PRIVATE yaml-cpp)
 target_link_libraries(refrakt PRIVATE inja)
