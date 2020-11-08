@@ -1,10 +1,9 @@
 screenshot.png
-fonts/
+screenshot*.png
+
 Debug/
-flames/
 imgui.ini
 x64/
 .vs/
 cache/
-screenshot*.png
 build/
