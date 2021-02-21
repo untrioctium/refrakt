@@ -12,7 +12,7 @@ std::vector<std::uint32_t> create_shuffle_buffer(std::uint32_t size);
 void make_shuffle_buffers(std::uint32_t size, std::size_t count);
 std::vector<std::array<float,4>> make_sample_points(std::uint32_t count);
 
-#define BLOCK_WIDTH 32
+#define BLOCK_WIDTH 256
 
 bool flame::do_common_init(const flame_compiler& fc)
 {
@@ -238,7 +238,7 @@ void flame::warmup(std::size_t num_passes, float tss_width)
 
     copy_flame_data_to_buffer();
     glMemoryBarrier(GL_ALL_BARRIER_BITS);
-    glFinish();
+    //glFinish();
 
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 5, param_buffer_.name());
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 9, inflated_buffer_->name());
@@ -247,7 +247,7 @@ void flame::warmup(std::size_t num_passes, float tss_width)
     animate_cs_->set_uniform<float>("temporal_sample_width", tss_width);
     glDispatchCompute(num_temporal_samples_ / 32, 1, 1);
     glMemoryBarrier(GL_ALL_BARRIER_BITS);
-    glFinish();
+    //glFinish();
 
     glUseProgram(iterate_cs_->name());
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, sample_buffer_->name());
@@ -262,20 +262,22 @@ void flame::warmup(std::size_t num_passes, float tss_width)
     iterate_cs_->set_uniform<unsigned int>("shuf_buf_idx_out", shuf_dist(generator));
     glDispatchCompute((swap_buffer_->size() / num_temporal_samples_) / BLOCK_WIDTH, num_temporal_samples_, 1);
     glMemoryBarrier(GL_ALL_BARRIER_BITS);
-    glFinish();
+    //glFinish();
 
     GLuint names[2] = { local_buffer_->name(), swap_buffer_->name() };
 
     iterate_cs_->set_uniform<bool>("first_run", false);
     for (int i = 0; i < num_passes; i++) {
-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, names[i & 1]);
-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, names[!(i & 1)]);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, names[i % 2]);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, names[(i + 1) % 2]);
         iterate_cs_->set_uniform<unsigned int>("shuf_buf_idx_in", shuf_dist(generator));
         iterate_cs_->set_uniform<unsigned int>("shuf_buf_idx_out", shuf_dist(generator));
         glDispatchCompute((swap_buffer_->size() / num_temporal_samples_) / BLOCK_WIDTH, num_temporal_samples_, 1);
         glMemoryBarrier(GL_ALL_BARRIER_BITS);
-        glFinish();
+        //glFinish();
     }
+
+    if (num_passes % 2) local_buffer_.swap(swap_buffer_);
 }
 
 std::size_t flame::draw_to_bins(bin_t& bins, std::size_t bins_width, int num_iter)
@@ -297,7 +299,7 @@ std::size_t flame::draw_to_bins(bin_t& bins, std::size_t bins_width, int num_ite
     glUseProgram(iterate_cs_->name());
     iterate_cs_->set_uniform<int>("total_params", buffer_map_["size"]);
     iterate_cs_->set_uniform<bool>("random_read", true);
-    iterate_cs_->set_uniform<bool>("random_write", true);
+    iterate_cs_->set_uniform<bool>("random_write", false);
     iterate_cs_->set_uniform<bool>("first_run", false);
     iterate_cs_->set_uniform<bool>("do_draw", true);
     iterate_cs_->set_uniform<glm::uvec2>("bin_dims", glm::uvec2(target_dims[0], target_dims[1]));
@@ -313,14 +315,16 @@ std::size_t flame::draw_to_bins(bin_t& bins, std::size_t bins_width, int num_ite
     GLuint names[2] = { local_buffer_->name(), swap_buffer_->name() };
 
     for (int i = 0; i < num_iter; i++) {
-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, names[i & 1]);
-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, names[!(i & 1)]);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, names[i % 2]);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, names[(i + 1) % 2]);
         iterate_cs_->set_uniform<unsigned int>("shuf_buf_idx_in", shuf_dist(generator));
         iterate_cs_->set_uniform<unsigned int>("shuf_buf_idx_out", shuf_dist(generator));
         glDispatchCompute((swap_buffer_->size() / num_temporal_samples_) / BLOCK_WIDTH, num_temporal_samples_, 1);
         glMemoryBarrier(GL_ALL_BARRIER_BITS);
-        glFinish();
+        //glFinish();
     }
+
+    if (num_iter % 2) local_buffer_.swap(swap_buffer_);
 
     return std::size_t{ counters_.get_one(0) };
 }

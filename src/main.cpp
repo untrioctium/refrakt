@@ -191,8 +191,8 @@ int main(int, char**)
     std::mt19937 generator{rd()};
     std::uniform_real_distribution<float> dist(19232581.235235, 91212584.1241251);
 
-    const std::size_t image_dims[2] = { 640, 360 };
-    const std::size_t supersampling = 2;
+    const std::size_t image_dims[2] = { 1280, 720 };
+    const std::size_t supersampling = 1;
     const std::size_t target_dims[2] = { image_dims[0] * supersampling, image_dims[1] * supersampling };
 
     // Our state
@@ -200,7 +200,7 @@ int main(int, char**)
     bool show_another_window = false;
     ImVec4 clear_color = ImVec4(0.0f, 0.0f, 0.0f, 1.00f);
 
-    flame::set_sim_parameters(1024 * 1024, 1024, 1024);
+    flame::set_sim_parameters(2048 * 1024, 512, 1024);
 
     auto variations = flame_compiler{};
     auto flame_def = flame::load_flame("flames/electricsheep.247.11256.flam3", variations);

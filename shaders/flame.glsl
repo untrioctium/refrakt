@@ -41,18 +41,30 @@ uint get_out_shuf_idx() {
 void main() {
 	load_random_state();
 
-	if( gl_LocalInvocationID.x == 0 ) {
-		for(int i = 0; i < total_params; i++ ) fp[i] = fp_inflated[total_params * gl_WorkGroupID.y + i];
-		xid = get_xform_id(randf());
+	uint per_thread = total_params / gl_WorkGroupSize.x + 1;
+
+	for( int i = 0; i < per_thread; i++ ) {
+		fp[gl_LocalInvocationID.x * per_thread + i] = fp_inflated[total_params * gl_WorkGroupID.y + (gl_LocalInvocationID.x * per_thread + i) % total_params];
 	}
 	barrier();
+
+	if( gl_LocalInvocationID.x == 0 ) {
+		xid = get_xform_id(randf());
+	}
 
 	uint i_idx = (random_read)? get_in_shuf_idx(): gl_GlobalInvocationID.x;
 	uint o_idx = (random_write)? get_out_shuf_idx(): gl_GlobalInvocationID.x;
 
+	// if we are on the first run, all particles pull from the first buffer
+	// which contains the sample points but jitter it a bit
 	uint offset = ((first_run)? 0: (gl_WorkGroupID.y * gl_WorkGroupSize.x * gl_NumWorkGroups.x));
 	vec4 part_state = pos_in[offset + i_idx];
-	//if(first_run) part_state.xy += vec2(randf(), randf()) * .001;
+	if(first_run) 
+	{
+		part_state.xy += randf() * .1 * PI * 2.0 * sincos(sqrt(randf()));;
+	}
+
+	barrier();
 	vec4 result = dispatch(part_state.xyz, xid);
 
 	//if(badval(result.x) || badval(result.y)) result.xyw = vec3(vec2(randf(), randf()) * 2.0 - 1.0, 0.0);
